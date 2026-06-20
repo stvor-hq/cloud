@@ -11,7 +11,8 @@
  *   4. Plugins loaded on-demand via the plugin registry
  */
 
-import { IAgentRuntime, INodeSettings, RuntimeState, IBootPhase } from './types';
+import type { IAgentRuntime, INodeSettings, IBootPhase } from './types';
+import { RuntimeState } from './types';
 
 /**
  * AgentRuntime: Central orchestrator for Stvor Cloud.
@@ -19,13 +20,26 @@ import { IAgentRuntime, INodeSettings, RuntimeState, IBootPhase } from './types'
  * Implements deferred hydration — heavy transport layers load only when needed,
  * keeping cold-start time under 50ms.
  */
+interface RuntimePlugin {
+  teardown?: () => Promise<void> | void;
+}
+
+interface RuntimeCommercePlugin {
+  registerEventListener(listener: unknown): void;
+}
+
+interface RuntimeTransportLayer {
+  close?: () => Promise<void> | void;
+  initialized?: boolean;
+}
+
 export class AgentRuntime implements IAgentRuntime {
   state: RuntimeState = RuntimeState.INITIALIZING;
   settings: INodeSettings;
 
   private bootPhases: IBootPhase[] = [];
-  private plugins: Map<string, any> = new Map();
-  private transportLayers: Map<string, any> = new Map();
+  private plugins: Map<string, RuntimePlugin | RuntimeCommercePlugin> = new Map();
+  private transportLayers: Map<string, RuntimeTransportLayer> = new Map();
 
   constructor(settings: INodeSettings) {
     this.settings = settings;
@@ -98,7 +112,8 @@ export class AgentRuntime implements IAgentRuntime {
     // Teardown plugins
     for (const [name, plugin] of this.plugins) {
       console.log(`[Runtime] Unloading plugin: ${name}`);
-      if (plugin.teardown) await plugin.teardown();
+      const teardown = 'teardown' in plugin ? plugin.teardown : undefined;
+      if (teardown) await teardown();
     }
 
     // Teardown transport layers
@@ -128,14 +143,14 @@ export class AgentRuntime implements IAgentRuntime {
     console.log(`[Runtime] Loading transport layer: ${name}`);
     // In real implementation, this would dynamically import the transport
     // For now, it's a stub to show the deferred hydration pattern
-    this.transportLayers.set(name, { name, initialized: true });
+    this.transportLayers.set(name, { initialized: true });
   }
 
   /**
    * Register a plugin with the runtime.
    * Plugins are loaded on-demand and can hook into the boot lifecycle.
    */
-  registerPlugin(name: string, plugin: any): void {
+  registerPlugin(name: string, plugin: RuntimePlugin | RuntimeCommercePlugin): void {
     if (this.plugins.has(name)) {
       console.warn(`[Runtime] Plugin ${name} already registered, skipping.`);
       return;

@@ -5,10 +5,11 @@
  * Handles job lifecycle: OPEN → FUNDED → SUBMITTED → COMPLETE/REFUND/EXPIRED/ABORTED
  */
 
-import {
+import type {
   IErc8183Job,
   ICommerceContext,
-  IJobStore,
+  IJobStore} from './types';
+import {
   EvaluationDecision,
 } from './types';
 import { ERC8183JobState } from '../../core/types';

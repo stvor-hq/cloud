@@ -4,7 +4,7 @@
 > The only ERC-8183 implementation where **funds and secrets are both provably secure** —
 > against classical attackers today and quantum computers tomorrow.
 
-[![Tests](https://img.shields.io/badge/tests-23%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-38%20passing-brightgreen)]()
 [![PQC](https://img.shields.io/badge/crypto-ML--KEM--768-blue)]()
 [![ElizaOS](https://img.shields.io/badge/ElizaOS-plugin%20compatible-purple)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
@@ -37,12 +37,13 @@ bun start:demo
 Client (Alice)                       PQC Relay (mock, in-process)              Provider (Bob)
 ---------------                      -------------------------                 ---------------
   createJob()  ── lock funds ──▶  ERC-8183 Ledger (hashes only)  ──▶  submit deliverable hash
-      │                                     ▲                                      │
-      │ send encrypted prompt              │ receive attestations                    │
-      └─▶ encrypt via HybridPQCTransport ─▶ relay ──▶ decrypt ──▶ SecurityGuard ──▶ execute
-          @noble/curves X25519
-          @noble/post-quantum ML-KEM-768
-          @noble/ciphers AES-256-GCM
+       │                                     ▲                                      │
+       │ send encrypted prompt              │ receive attestations                    │
+       └─▶ encrypt via HybridPQCTransport ─▶ relay ──▶ decrypt ──▶ SecurityGuard ──▶ execute
+           @stvor/web3
+           P-256 X3DH + ML-KEM-768
+           Double Ratchet (Signal Protocol)
+           AES-256-GCM
 ```
 
 ```
@@ -65,15 +66,18 @@ src/
 
 ## Cryptography
 
-Stvor Cloud uses a narrow, auditable crypto stack:
+Powered by [`@stvor/web3`](https://www.npmjs.com/package/@stvor/web3) —
+the team's own Rust/WASM post-quantum SDK (zero npm runtime dependencies).
 
-- ML-KEM-768: `@noble/post-quantum` — NIST FIPS 203, 128-bit quantum security
-- X25519: `@noble/curves` — classical key exchange
-- AES-256-GCM: `@noble/ciphers` — authenticated symmetric encryption
-- SHA-256: `@noble/hashes` — ledger attestation
-- Hybrid secret: `SHA-256(X25519_secret ∥ ML-KEM_secret)` — both must be broken to decrypt
+| Layer | Algorithm | Verification |
+|-------|-----------|-------------|
+| Key exchange | P-256 X3DH + ML-KEM-768 | 53 NIST ACVTS vectors |
+| Sessions | Double Ratchet (Signal Protocol) | Rust/WASM core |
+| Symmetric | AES-256-GCM | NIST SP 800-38D |
+| Hashing | SHA-256 (Node.js crypto) | Built-in |
 
-The relay sees ciphertext, IV, ephemeral X25519 public key, and ML-KEM ciphertext. It does not receive the hybrid secret and cannot decrypt payloads.
+Hybrid secret: `HKDF-SHA256(P-256_secret ‖ ML-KEM_secret, "STVOR-HYBRID-v1")`
+Breaking encryption requires breaking P-256 AND ML-KEM-768 simultaneously.
 
 ## ElizaOS integration
 
@@ -102,11 +106,13 @@ The plugin exports `agentCommercePlugin` with 4 actions, 1 provider, and 1 evalu
 ## Test results
 
 ```text
-bun test tests/crypto.test.ts          5 passed
+bun test tests/crypto.test.ts          8 passed
 bun test tests/commerce-flow.test.ts  12 passed
 bun test tests/elizaos-plugin.test.ts  6 passed
+bun test tests/key-store.test.ts       4 passed
+bun test tests/performance.test.ts     6 passed
 ─────────────────────────────────────────────────
-Total                                 23 passed
+Total                                 36 passed
 ```
 
 ## Roadmap

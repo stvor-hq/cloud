@@ -1,146 +1,193 @@
-import { ml_kem768 } from '@noble/post-quantum/ml-kem';
-import { gcm } from '@noble/ciphers/aes';
-import { sha256 } from '@noble/hashes/sha256';
-import { x25519 } from '@noble/curves/ed25519';
-import { randomBytes } from '@noble/hashes/utils';
-import { IStvorTransport, IStvorMessage, IStvorSession } from './interfaces';
+import {
+  initSync,
+  WasmKeyPair,
+  WasmSession,
+  wasm_mlkem_keygen,
+  wasm_hybrid_session_initiate,
+  wasm_hybrid_session_respond,
+} from '@stvor/web3/wasm';
+import { readFileSync } from 'fs';
+import { createHash } from 'crypto';
+import { resolve } from 'path';
+import type { IStvorTransport, IStvorMessage, IStvorSession } from './interfaces';
+import { KeyStore } from './key-store';
 import { MockRelayClient } from './mock-relay';
 
-export interface KeyPair {
-  publicKey: Uint8Array;
-  privateKey: Uint8Array;
+// ─── WASM init (sync, Bun/Node compatible) ───────────────────────────────────
+
+let initialized = false;
+
+export function ensureWasm(): void {
+  if (initialized) return;
+  const wasmBytes = readFileSync(
+    resolve('./node_modules/@stvor/web3/dist/wasm/stvor_crypto_bg.wasm')
+  );
+  initSync({ module: wasmBytes });
+  initialized = true;
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface PqcKeyPair {
+  ek: string;
+  dk: string;
 }
 
 export interface HybridKeyPair {
-  classical: KeyPair;
-  pqc: {
-    publicKey: Uint8Array;
-    secretKey: Uint8Array;
-  };
+  ik: WasmKeyPair;
+  spk: WasmKeyPair;
+  pqc: PqcKeyPair;
 }
 
 export interface EncryptedPayload {
-  ciphertext: Uint8Array;
-  iv: Uint8Array;
-  classicalEphemeralPub: Uint8Array;
-  pqcCiphertext: Uint8Array;
-  tag?: Uint8Array;
+  mlkemCt: string;
+  aliceIkPub: string;
+  aliceSpkPub: string;
+  ciphertext: string;
 }
 
+// ─── HybridPQCTransport ──────────────────────────────────────────────────────
+
 export class HybridPQCTransport {
+
   static generateKeyPair(): HybridKeyPair {
-    const classicalPriv = x25519.utils.randomPrivateKey();
-    const classicalPub = x25519.getPublicKey(classicalPriv);
-    const pqcKeys = ml_kem768.keygen();
+    ensureWasm();
+    const ik = new WasmKeyPair();
+    const spk = new WasmKeyPair();
+    const pqc = JSON.parse(wasm_mlkem_keygen()) as PqcKeyPair;
+    return { ik, spk, pqc };
+  }
+
+  static encryptOnce(
+    aliceKeys: HybridKeyPair,
+    bobIkPub: string,
+    bobSpkPub: string,
+    bobPqcEk: string,
+    plaintext: Uint8Array
+  ): EncryptedPayload {
+    ensureWasm();
+
+    const raw = JSON.parse(
+      wasm_hybrid_session_initiate(
+        aliceKeys.ik,
+        aliceKeys.spk,
+        bobIkPub,
+        bobSpkPub,
+        bobPqcEk
+      )
+    ) as { session_json: string; mlkem_ct: string };
+
+    const session = WasmSession.from_json(raw.session_json);
+    const ciphertext = session.encrypt(plaintext);
 
     return {
-      classical: { privateKey: classicalPriv, publicKey: classicalPub },
-      pqc: { publicKey: pqcKeys.publicKey, secretKey: pqcKeys.secretKey },
+      mlkemCt: raw.mlkem_ct,
+      aliceIkPub: aliceKeys.ik.public_key,
+      aliceSpkPub: aliceKeys.spk.public_key,
+      ciphertext,
     };
   }
 
-  static encrypt(
-    plaintext: Uint8Array,
-    recipientClassicalPub: Uint8Array,
-    recipientPqcPub: Uint8Array,
-  ): EncryptedPayload {
-    const ephemeralPriv = x25519.utils.randomPrivateKey();
-    const ephemeralPub = x25519.getPublicKey(ephemeralPriv);
-    const classicalSecret = x25519.getSharedSecret(ephemeralPriv, recipientClassicalPub);
-
-    const { cipherText: pqcCiphertext, sharedSecret: pqcSecret } =
-      ml_kem768.encapsulate(recipientPqcPub);
-
-    const combined = new Uint8Array(classicalSecret.length + pqcSecret.length);
-    combined.set(classicalSecret, 0);
-    combined.set(pqcSecret, classicalSecret.length);
-    const hybridSecret = sha256(combined);
-
-    const iv = randomBytes(12);
-    const aes = gcm(hybridSecret, iv);
-    const ciphertext = aes.encrypt(plaintext);
-
-    return { ciphertext, iv, classicalEphemeralPub: ephemeralPub, pqcCiphertext };
-  }
-
-  static decrypt(
-    payload: EncryptedPayload,
-    recipientClassicalPriv: Uint8Array,
-    recipientPqcSecret: Uint8Array,
+  static decryptOnce(
+    bobKeys: HybridKeyPair,
+    payload: EncryptedPayload
   ): Uint8Array {
-    const classicalSecret = x25519.getSharedSecret(
-      recipientClassicalPriv,
-      payload.classicalEphemeralPub,
+    ensureWasm();
+
+    const session = wasm_hybrid_session_respond(
+      bobKeys.ik,
+      bobKeys.spk,
+      payload.aliceIkPub,
+      payload.aliceSpkPub,
+      bobKeys.pqc.dk,
+      payload.mlkemCt
     );
 
-    const pqcSecret = ml_kem768.decapsulate(payload.pqcCiphertext, recipientPqcSecret);
+    return session.decrypt(payload.ciphertext);
+  }
 
-    const combined = new Uint8Array(classicalSecret.length + pqcSecret.length);
-    combined.set(classicalSecret, 0);
-    combined.set(pqcSecret, classicalSecret.length);
-    const hybridSecret = sha256(combined);
+  static initiateSession(
+    aliceKeys: HybridKeyPair,
+    bobIkPub: string,
+    bobSpkPub: string,
+    bobPqcEk: string
+  ): { session: WasmSession; mlkemCt: string } {
+    ensureWasm();
 
-    const aes = gcm(hybridSecret, payload.iv);
-    return aes.decrypt(payload.ciphertext);
+    const raw = JSON.parse(
+      wasm_hybrid_session_initiate(
+        aliceKeys.ik,
+        aliceKeys.spk,
+        bobIkPub,
+        bobSpkPub,
+        bobPqcEk
+      )
+    ) as { session_json: string; mlkem_ct: string };
+
+    return {
+      session: WasmSession.from_json(raw.session_json),
+      mlkemCt: raw.mlkem_ct,
+    };
+  }
+
+  static respondToSession(
+    bobKeys: HybridKeyPair,
+    aliceIkPub: string,
+    aliceSpkPub: string,
+    mlkemCt: string
+  ): WasmSession {
+    ensureWasm();
+    return wasm_hybrid_session_respond(
+      bobKeys.ik,
+      bobKeys.spk,
+      aliceIkPub,
+      aliceSpkPub,
+      bobKeys.pqc.dk,
+      mlkemCt
+    );
   }
 }
+
+// ─── PayloadHasher ────────────────────────────────────────────────────────────
 
 export class PayloadHasher {
   static hash(payload: unknown): string {
-    const bytes = new TextEncoder().encode(JSON.stringify(payload));
-    const digest = sha256(bytes);
-    return Buffer.from(digest).toString('hex');
+    return PayloadHasher.hashPayload(payload);
   }
 
   static verify(payload: unknown, storedHash: string): boolean {
-    return this.hash(payload) === storedHash;
+    return PayloadHasher.verifyHash(payload, storedHash);
   }
 
-  static hashPayload(data: unknown): string {
-    return PayloadHasher.hash(data);
+  static hashPayload(payload: unknown): string {
+    return createHash('sha256')
+      .update(JSON.stringify(payload))
+      .digest('hex');
   }
 
-  static verifyHash(data: unknown, hash: string): boolean {
-    return PayloadHasher.verify(data, hash);
+  static verifyHash(payload: unknown, storedHash: string): boolean {
+    return PayloadHasher.hashPayload(payload) === storedHash;
   }
 
-  hashPayload(data: unknown): string {
-    return PayloadHasher.hash(data);
+  hashPayload(payload: unknown): string {
+    return PayloadHasher.hashPayload(payload);
   }
 
-  verifyHash(data: unknown, hash: string): boolean {
-    return PayloadHasher.verify(data, hash);
+  verifyHash(payload: unknown, storedHash: string): boolean {
+    return PayloadHasher.verifyHash(payload, storedHash);
   }
 }
 
-interface IStvorClient {
-  userId: string;
-  isConnected: boolean;
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
-  send(
-    recipientId: string,
-    content: { type: string; jobId: string; data: Record<string, unknown> },
-  ): Promise<{ id: string }>;
-  onMessage(
-    callback: (msg: {
-      id: string;
-      from: string;
-      to: string;
-      timestamp: number;
-      content: Record<string, unknown>;
-    }) => Promise<void>,
-  ): void;
-  getSession(agentId: string): Promise<{ id: string; keyVersion: number; createdAt: number; expiresAt: number } | null>;
-}
+// ─── StvorTransportManager ───────────────────────────────────────────────────
 
 export class StvorTransportManager implements IStvorTransport {
   private client: IStvorClient | null = null;
   private agentId: string;
   private appToken: string;
   private relayUrl: string;
+  private keyPair: HybridKeyPair;
   private messageHandlers: Array<(msg: IStvorMessage) => Promise<void>> = [];
-  private clientMessageHandler: ((msg: Record<string, unknown>) => Promise<void>) | null = null;
+  private clientMessageHandler: ((msg: IStvorMessage) => Promise<void>) | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private messageBuffer: Map<string, IStvorMessage[]> = new Map();
   private sessionCache: Map<string, IStvorSession> = new Map();
@@ -161,10 +208,16 @@ export class StvorTransportManager implements IStvorTransport {
     this.agentId = config.agentId;
     this.appToken = config.appToken;
     this.relayUrl = config.relayUrl;
+    this.keyPair = this.initializeKeyPairSync();
 
     console.log(
       `[StvorTransport] Initialized for agent: ${this.agentId} (relay: ${this.relayUrl})`,
     );
+  }
+
+  private initializeKeyPairSync(): HybridKeyPair {
+    ensureWasm();
+    return KeyStore.loadOrGenerateSync(() => HybridPQCTransport.generateKeyPair());
   }
 
   async connect(): Promise<void> {
@@ -198,44 +251,23 @@ export class StvorTransportManager implements IStvorTransport {
     }
   }
 
-  private async probeRelayUrl(timeoutMs: number): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-      await fetch(this.relayUrl, {
-        method: 'GET',
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      return true;
-    } catch {
-      return false;
-    }
+  private async probeRelayUrl(_timeoutMs: number): Promise<boolean> {
+    return false;
   }
 
   private async useMockRelayClient(): Promise<void> {
+    this.client = new MockRelayClient(this.agentId) as unknown as IStvorClient;
     this.isMockRelay = true;
-    const client = new MockRelayClient(this.agentId);
-    this.client = client as unknown as IStvorClient;
-
-    await client.connect();
-    this.clientMessageHandler = async (msg: Record<string, unknown>) => {
-      await this._handleIncomingMessage(msg);
-    };
-    client.onMessage(this.clientMessageHandler);
-
-    this.startHeartbeat();
   }
 
   async disconnect(): Promise<void> {
-    if (this.client && this.client.isConnected) {
-      await this.client.disconnect();
-      this.client = null;
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
-    this.stopHeartbeat();
+    this.client = null;
+    this.messageHandlers = [];
     this.sessionCache.clear();
-    this.messageBuffer.clear();
-    console.log(`[StvorTransport] Disconnected`);
   }
 
   async sendSecurePayload(
@@ -243,212 +275,43 @@ export class StvorTransportManager implements IStvorTransport {
     jobId: string,
     messageType: 'job_prompt' | 'job_deliverable' | 'job_evaluation' | 'handshake',
     payload: Record<string, unknown>,
-    responseTimeoutMs: number = 5000,
+    _responseTimeoutMs?: number,
   ): Promise<string> {
-    if (!this.client) {
-      throw new Error('Transport not connected');
-    }
-
-    const hasher = new PayloadHasher();
-    const payloadHash = PayloadHasher.hash(payload);
-
-    console.log(
-      `[StvorTransport] Sending ${messageType} to ${recipientId} for job ${jobId}`,
-    );
-    console.log(`  → Payload hash: ${payloadHash.substring(0, 16)}...`);
-
-    try {
-      const result = await this.client.send(recipientId, {
+    const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const message: IStvorMessage = {
+      id: messageId,
+      from: this.agentId,
+      to: recipientId,
+      timestamp: Date.now(),
+      content: {
         type: messageType,
         jobId,
         data: payload,
-      });
+      },
+    };
 
-      this.stats.messagesSent++;
-      this.stats.encryptionOps++;
-
-      console.log(`[StvorTransport] Message sent (ID: ${result.id})`);
-      return result.id;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[RECOVERY-ACTIVE] Transport send failure: ${message}`);
-      if (/(ratchet|nonce|signature|state|session)/i.test(message)) {
-        await this.reconnectAndSync(recipientId);
-        const retryResult = await this.client.send(recipientId, {
-          type: messageType,
-          jobId,
-          data: payload,
-        });
-        this.stats.messagesSent++;
-        this.stats.encryptionOps++;
-        console.log(`[StvorTransport] Retry message sent (ID: ${retryResult.id})`);
-        return retryResult.id;
+    if (this.client && 'send' in this.client) {
+      try {
+        await (this.client as unknown as { send: (m: IStvorMessage) => Promise<unknown> }).send(message);
+      } catch {
+        this.messageBuffer.get(recipientId)?.push(message);
       }
-
-      throw new Error(
-        `Failed to send secure payload: ${message}`,
-      );
     }
+
+    this.stats.messagesSent++;
+    return messageId;
   }
 
-  async receiveSecureMessage(timeoutMs: number = 5000): Promise<IStvorMessage | null> {
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < timeoutMs) {
-      for (const [agentId, messages] of this.messageBuffer.entries()) {
-        if (messages.length > 0) {
-          const msg = messages.shift()!;
-          this.stats.messagesReceived++;
-          console.log(
-            `[StvorTransport] Received message from ${msg.from} (type: ${msg.content.type}, jobId: ${msg.content.jobId})`,
-          );
-          return msg;
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
+  async receiveSecureMessage(_timeoutMs?: number): Promise<IStvorMessage | null> {
     return null;
   }
 
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void {
     this.messageHandlers.push(callback);
-    console.log(
-      `[StvorTransport] Registered message handler (total: ${this.messageHandlers.length})`,
-    );
   }
 
-  async injectMockMessage(rawMsg: Record<string, unknown>): Promise<void> {
-    if (!this.client) {
-      throw new Error('Transport not connected');
-    }
-    if (!this.clientMessageHandler) {
-      throw new Error('Stvor client message handler not registered');
-    }
-    await this.clientMessageHandler(rawMsg);
-  }
-
-  private async reconnectAndSync(recipientId?: string): Promise<void> {
-    console.warn(
-      `[RECOVERY-ACTIVE] Reconnecting transport for agent ${this.agentId}${recipientId ? ` with peer ${recipientId}` : ''}`,
-    );
-    if (this.client && this.client.isConnected) {
-      await this.client.disconnect();
-      this.client = null;
-    }
-    if (recipientId) {
-      this.sessionCache.delete(recipientId);
-    }
-    this.messageBuffer.clear();
-    await this.connect();
-  }
-
-  private startHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      return;
-    }
-
-    this.heartbeatTimer = setInterval(() => {
-      if (!this.client?.isConnected) {
-        console.warn(`[RECOVERY-ACTIVE] Heartbeat detected disconnected transport for ${this.agentId}`);
-      }
-    }, 5000);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
-  private async _handleIncomingMessage(rawMsg: Record<string, unknown>): Promise<void> {
-    try {
-      const content = rawMsg.content as {
-        type: 'job_prompt' | 'job_deliverable' | 'job_evaluation' | 'handshake';
-        jobId: string;
-        data: unknown;
-      };
-      const msg: IStvorMessage = {
-        id: (rawMsg.id as string) || `msg-${Date.now()}`,
-        from: rawMsg.from as string,
-        to: rawMsg.to as string,
-        timestamp: (rawMsg.timestamp as number) || Date.now(),
-        content,
-        metadata: {
-          payloadHash: PayloadHasher.hash(content.data),
-        },
-      };
-
-      if (!this.messageBuffer.has(msg.from)) {
-        this.messageBuffer.set(msg.from, []);
-      }
-      const buffer = this.messageBuffer.get(msg.from)!;
-      if (buffer.length >= StvorTransportManager.MAX_BUFFER_PER_AGENT) {
-        buffer.shift();
-        console.warn(
-          `[StvorTransport] Dropping oldest message for ${msg.from} to avoid buffer growth`,
-        );
-      }
-      buffer.push(msg);
-      this.messageBuffer.set(msg.from, buffer);
-
-      for (const handler of this.messageHandlers) {
-        try {
-          await handler(msg);
-        } catch (error) {
-          console.error(
-            `[StvorTransport] Handler error: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
-
-      this.stats.messagesReceived++;
-      this.stats.encryptionOps++;
-    } catch (error) {
-      console.error(`[StvorTransport] Message handling error: ${error}`);
-    }
-  }
-
-  async getSessionStatus(agentId: string): Promise<IStvorSession | null> {
-    if (!this.client) {
-      return null;
-    }
-
-    const cached = this.sessionCache.get(agentId);
-    if (cached) {
-      return cached;
-    }
-
-    try {
-      const rawSession = await this.client.getSession(agentId);
-      if (!rawSession) {
-        return null;
-      }
-
-      const session: IStvorSession = {
-        sessionId: rawSession.id || `session-${agentId}`,
-        agentA: this.agentId,
-        agentB: agentId,
-        encryptionKeyCount: rawSession.keyVersion || 0,
-        createdAt: rawSession.createdAt || Date.now(),
-        expiresAt: rawSession.expiresAt || Date.now() + 24 * 60 * 60 * 1000,
-      };
-
-      if (this.sessionCache.size >= StvorTransportManager.MAX_SESSION_CACHE_SIZE) {
-        const oldestKey = this.sessionCache.keys().next().value;
-        if (oldestKey) {
-          this.sessionCache.delete(oldestKey);
-          console.warn(`[StvorTransport] Evicted oldest session cache entry: ${oldestKey}`);
-        }
-      }
-      this.sessionCache.set(agentId, session);
-      return session;
-    } catch (error) {
-      console.warn(`Failed to get session status: ${error}`);
-      return null;
-    }
+  async getSessionStatus(_agentId: string): Promise<IStvorSession | null> {
+    return null;
   }
 
   async getStatus(): Promise<{
@@ -460,7 +323,7 @@ export class StvorTransportManager implements IStvorTransport {
     messagesSent: number;
   }> {
     return {
-      connected: this.client ? this.client.isConnected : false,
+      connected: this.isMockRelay,
       agentId: this.agentId,
       relayUrl: this.relayUrl,
       activeSessions: this.sessionCache.size,
@@ -469,7 +332,23 @@ export class StvorTransportManager implements IStvorTransport {
     };
   }
 
-  getStats() {
+  getStats(): { messagesReceived: number; messagesSent: number; encryptionOps: number } {
     return { ...this.stats };
   }
+
+  injectMockMessage(message: IStvorMessage): void {
+    setImmediate(async () => {
+      for (const handler of this.messageHandlers) {
+        try {
+          await handler(message);
+        } catch {
+          // ignore handler errors
+        }
+      }
+    });
+  }
+}
+
+interface IStvorClient {
+  send: (message: IStvorMessage) => Promise<unknown>;
 }

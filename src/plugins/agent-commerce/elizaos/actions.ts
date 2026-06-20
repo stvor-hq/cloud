@@ -1,7 +1,7 @@
 import type { IElizaRuntime, Memory, State, HandlerCallback } from './types';
 import { ERC8183StateMachine } from '../state-machine';
 import { MockPqcReputationGate } from '../hooks';
-import { IJobStore, ICommerceContext, IErc8183Job } from '../types';
+import type { ICommerceContext} from '../types';
 import { MemoryJobStore } from '../index';
 
 const contexts = new Map<string, ICommerceContext>();
@@ -11,12 +11,7 @@ function getContext(runtime: IElizaRuntime): ICommerceContext {
     const gate = new MockPqcReputationGate();
     const jobStore = new MemoryJobStore();
     contexts.set(runtime.agentId, {
-      runtime: {
-        agentId: runtime.agentId,
-        character: runtime.character,
-        getSetting: runtime.getSetting,
-        getMemoryManager: runtime.getMemoryManager,
-      } as unknown as any,
+      runtime,
       jobStore,
       reputationGate: gate,
     });

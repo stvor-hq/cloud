@@ -17,10 +17,10 @@
 
 import { ERC8183StateMachine } from './state-machine';
 import { MockPqcReputationGate } from './hooks';
-import { IJobStore, ICommerceContext, IErc8183Job } from './types';
-import { ERC8183JobState } from '../../core/types';
-import { StvorTransportManager } from '../../transport/pqc';
-import { ICommerceEventListener } from './lifecycle';
+import { EvaluationDecision, type IJobStore, type ICommerceContext, type IErc8183Job } from './types';
+import type { ERC8183JobState } from '../../core/types';
+import type { StvorTransportManager } from '../../transport/pqc';
+import type { ICommerceEventListener } from './lifecycle';
 
 /**
  * In-memory job store (Phase 2).
@@ -90,6 +90,8 @@ export interface ICommercePlugin {
 
   getContext(): ICommerceContext;
 
+  registerEventListener(listener: ICommerceEventListener): void;
+
   /**
    * Retrieve the current transport manager (for advanced use).
    */
@@ -111,7 +113,7 @@ export class AgentCommercePlugin implements ICommercePlugin {
   private eventListeners: ICommerceEventListener[] = [];
 
   constructor(
-    runtime: any,
+    runtime: unknown,
     transport?: StvorTransportManager,
     context?: Partial<ICommerceContext>,
   ) {
@@ -146,7 +148,7 @@ export class AgentCommercePlugin implements ICommercePlugin {
   private async _fireEvent(
     eventType: string,
     job: IErc8183Job,
-    extra?: any,
+    extra?: { decision?: string },
   ): Promise<void> {
     for (const listener of this.eventListeners) {
       try {
@@ -239,16 +241,16 @@ export class AgentCommercePlugin implements ICommercePlugin {
     decision: 'ACCEPT' | 'REJECT' | 'PARTIAL',
     reason?: string,
   ): Promise<IErc8183Job> {
-    const decisionEnum =
+    const decisionEnum: EvaluationDecision =
       decision === 'ACCEPT'
-        ? 'ACCEPT'
+        ? EvaluationDecision.ACCEPT
         : decision === 'REJECT'
-          ? 'REJECT'
-          : 'PARTIAL';
+          ? EvaluationDecision.REJECT
+          : EvaluationDecision.PARTIAL;
     const job = await ERC8183StateMachine.evaluateJob(
       this.context,
       jobId,
-      decisionEnum as any,
+      decisionEnum,
       reason,
     );
 
@@ -299,7 +301,7 @@ export class AgentCommercePlugin implements ICommercePlugin {
  * Plugin factory for ElizaOS integration with optional transport.
  */
 export function createCommercePlugin(
-  runtime: any,
+  runtime: unknown,
   transport?: StvorTransportManager,
   context?: Partial<ICommerceContext>,
 ): AgentCommercePlugin {

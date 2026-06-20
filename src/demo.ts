@@ -1,5 +1,7 @@
-import { HybridPQCTransport, PayloadHasher } from './transport/pqc';
+import { HybridPQCTransport, PayloadHasher, ensureWasm } from './transport/pqc';
 import { SecurityGuard } from './core/security';
+
+ensureWasm();
 
 const RED = '\x1b[31m';
 const GREEN = '\x1b[32m';
@@ -17,10 +19,6 @@ function sleep(ms: number): Promise<void> {
 
 function color(value: string, code: string): string {
   return `${code}${value}${RESET}`;
-}
-
-function shortHex(value: Uint8Array, length = 16): string {
-  return Buffer.from(value).toString('hex').slice(0, length);
 }
 
 function shortHash(value: string, length = 16): string {
@@ -93,30 +91,20 @@ async function actTwo(): Promise<{
 
   const alice = timing(() => HybridPQCTransport.generateKeyPair());
   await printLine(
-    `  [Alice]  Generating X25519 keypair...         ${color('✓', GREEN)}  ${alice.elapsedMs}ms`,
-  );
-
-  const alicePqc = timing(() => HybridPQCTransport.generateKeyPair());
-  await printLine(
-    `  [Alice]  Generating ML-KEM-768 keypair...     ${color('✓', GREEN)}  ${alicePqc.elapsedMs}ms`,
+    `  [Alice]  Generating P-256 IK + ML-KEM-768 keypair...   ${color('✓', GREEN)}  ${alice.elapsedMs}ms  (Rust/WASM)`,
   );
 
   const bob = timing(() => HybridPQCTransport.generateKeyPair());
   await printLine(
-    `  [Bob]    Generating X25519 keypair...         ${color('✓', GREEN)}  ${bob.elapsedMs}ms`,
-  );
-
-  const bobPqc = timing(() => HybridPQCTransport.generateKeyPair());
-  await printLine(
-    `  [Bob]    Generating ML-KEM-768 keypair...     ${color('✓', GREEN)}  ${bobPqc.elapsedMs}ms`,
+    `  [Bob]    Generating P-256 IK + ML-KEM-768 keypair...   ${color('✓', GREEN)}  ${bob.elapsedMs}ms  (Rust/WASM)`,
   );
 
   await printBlock([
     '',
-    `  Classical bits:    256-bit X25519 (${alice.value.classical.publicKey.byteLength} bytes)`,
-    `  Post-quantum bits: ${alice.value.pqc.publicKey.byteLength}-byte ML-KEM-768 public key`,
+    `  Hybrid identity: P-256 IK + SPK + ML-KEM-768`,
+    `  ML-KEM-768 encapsulation key: ${alice.value.pqc.ek.length} chars`,
     '  Combined security: 2^128 classical ∧ quantum-resistant',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
   ]);
   await pauseAfterAct();
 
@@ -128,6 +116,7 @@ async function actTwo(): Promise<{
 }
 
 async function actThree(
+  alice: ReturnType<typeof HybridPQCTransport.generateKeyPair>,
   bob: ReturnType<typeof HybridPQCTransport.generateKeyPair>,
 ): Promise<{
   jobId: string;
@@ -142,14 +131,16 @@ async function actThree(
   };
 
   const taskBytes = new TextEncoder().encode(JSON.stringify(taskPayload));
-  const encrypted = HybridPQCTransport.encrypt(
+  const encrypted = HybridPQCTransport.encryptOnce(
+    bob,
+    bob.ik.public_key,
+    bob.spk.public_key,
+    bob.pqc.ek,
     taskBytes,
-    bob.classical.publicKey,
-    bob.pqc.publicKey,
   );
   const taskHash = PayloadHasher.hashPayload(taskPayload);
-  const ciphertextPrefix = shortHex(encrypted.ciphertext, 16);
-  const ciphertextSize = encrypted.ciphertext.byteLength;
+  const ciphertextPrefix = Buffer.from(encrypted.ciphertext).toString('hex').slice(0, 16);
+  const ciphertextSize = Math.floor((encrypted.ciphertext.length * 3) / 4);
 
   await printBlock([
     `${BOLD}${CYAN}🔐 ALICE CREATES SECURE JOB${RESET}`,
@@ -159,12 +150,12 @@ async function actThree(
     '  Task:      "Analyze financial report Q4-2024.pdf"',
     '',
     '  Encrypting task specification...',
-    '  ┌─────────────────────────────────────────────┐',
-    `  │ PLAINTEXT:  "Analyze financial report..."   │`,
-    '  │             ↓  X25519 ECDH                  │',
-    '  │             ↓  ML-KEM-768 encapsulate       │',
-    '  │             ↓  SHA-256(classical ∥ pqc)     │',
-    '  │             ↓  AES-256-GCM encrypt          │',
+    '  ┌──────────────────────────────────────────────────┐',
+    '  │ PLAINTEXT:  "Analyze financial report Q4-2024..." │',
+    '  │             ↓  P-256 X3DH + ML-KEM-768          │',
+    '  │             ↓  HKDF-SHA256(P-256 ∥ ML-KEM)      │',
+    '  │             ↓  Double Ratchet init               │',
+    '  │             ↓  AES-256-GCM encrypt               │',
     `  │ CIPHERTEXT: ${ciphertextPrefix}...  (${ciphertextSize} bytes; indistinguishable from random) │`,
     '  └─────────────────────────────────────────────┘',
     '',
@@ -275,12 +266,12 @@ async function printFinale(): Promise<void> {
 async function runDemo(): Promise<void> {
   await actOne();
   const { alice, bob, start } = await actTwo();
-  const job = await actThree(bob);
+  const job = await actThree(alice, bob);
   await actFour();
   await actFive(job, start);
   await printFinale();
 
-  if (alice.classical.privateKey.length === 0 || bob.pqc.secretKey.length === 0) {
+  if (alice.ik.private_key.length === 0 || bob.pqc.ek.length === 0) {
     throw new Error('Key material was unexpectedly empty');
   }
 }

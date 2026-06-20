@@ -13,10 +13,10 @@
  *   - Status: Real-time connection and session monitoring
  */
 
-import { INodeSettings } from '../core/types';
-import { AgentRuntime } from '../core/runtime';
-import { ICommercePlugin } from '../plugins/agent-commerce';
-import { StvorTransportManager } from '../transport/pqc';
+import type { INodeSettings } from '../core/types';
+import type { AgentRuntime } from '../core/runtime';
+import type { ICommercePlugin } from '../plugins/agent-commerce';
+import type { StvorTransportManager } from '../transport/pqc';
 
 async function parseJSON(req: Request, maxBytes = 1_048_576): Promise<Record<string, unknown>> {
   const contentLength = Number(req.headers.get('content-length') ?? 0);
@@ -300,6 +300,51 @@ export class ApiServer {
             }
           : null,
       });
+    }
+
+    if (method === 'POST' && path === '/api/x402/deliverable') {
+      const { x402Middleware } = await import('../x402/index.js');
+      const middleware = x402Middleware(
+        '1000000000000000',
+        'Access encrypted job deliverable via PQC transport'
+      );
+      const paymentResult = middleware(req, url);
+      if (paymentResult) return paymentResult;
+
+      const body = await parseJSON(req) as { jobId: string };
+      return this._response(200, {
+        success: true,
+        jobId: body.jobId,
+        message: 'Payment verified. Encrypted deliverable access granted.',
+        paidAt: new Date().toISOString(),
+      });
+    }
+
+    if (method === 'GET' && path === '/api/x402/info') {
+      const { generate402Response } = await import('../x402/index.js');
+      const info = generate402Response('/api/x402/deliverable', '1000000000000000', 'Demo');
+      return this._response(200, info);
+    }
+
+    if (method === 'GET' && path === '/mcp/tools') {
+      const { MCP_TOOLS, MCP_SERVER_INFO } = await import('../mcp/server.js');
+      return this._response(200, { serverInfo: MCP_SERVER_INFO, tools: MCP_TOOLS });
+    }
+
+    if (method === 'POST' && path === '/mcp/call') {
+      const { handleMcpToolCall } = await import('../mcp/server.js');
+      const body = await parseJSON(req) as { tool: string; args: Record<string, unknown> };
+      try {
+        const result = await handleMcpToolCall(body.tool, body.args ?? {}, commerce as unknown as {
+          createJob: (a: { clientAgent: string; providerAgent: string; taskDescription: string; requiredAmount: string | bigint; }) => Promise<{ jobId: string; status: string }>;
+          fundJob: (a: string, b: string, c: string | bigint) => Promise<{ jobId: string; status: string }>;
+          submitJob: (a: string, b: string, c: string) => Promise<{ jobId: string; status: string }>;
+          getJobState: (a: string) => Promise<unknown>;
+        });
+        return this._response(200, { result });
+      } catch (err) {
+        return this._response(400, { error: (err as Error).message });
+      }
     }
 
     return this._response(404, { error: `Route not found: ${method} ${path}` });

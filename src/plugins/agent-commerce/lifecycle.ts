@@ -5,9 +5,10 @@
  * Provides strict validation, recovery, and peer timeout behavior.
  */
 
-import { IErc8183Job, ICommerceContext } from './types';
-import { StvorTransportManager, PayloadHasher } from '../../transport/pqc';
-import { IStvorMessage } from '../../transport/interfaces';
+import type { IErc8183Job, ICommerceContext } from './types';
+import type { StvorTransportManager} from '../../transport/pqc';
+import { PayloadHasher } from '../../transport/pqc';
+import type { IStvorMessage } from '../../transport/interfaces';
 import { ERC8183StateMachine } from './state-machine';
 import { SecurityGuard } from '../../core/security';
 

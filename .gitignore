@@ -16,6 +16,8 @@ build/
 *.sqlite
 *.sqlite3
 data/
+data/keys/
+*.enc
 logs/
 
 # OS

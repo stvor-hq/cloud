@@ -24,10 +24,13 @@ import { AgentRuntime } from '../src/core/runtime';
 import {
   createCommercePlugin,
   MemoryJobStore,
+  type ICommercePlugin,
 } from '../src/plugins/agent-commerce';
 import { clearJobStore } from '../src/plugins/agent-commerce/state-machine';
 import { createCommerceTransportBridge } from '../src/plugins/agent-commerce/lifecycle';
 import { StvorTransportManager, PayloadHasher } from '../src/transport/pqc';
+import type { IStvorMessage } from '../src/transport/interfaces';
+import type { IPqcReputationGateHook } from '../src/plugins/agent-commerce/types';
 import { ApiServer } from '../src/api/server';
 
 /**
@@ -36,15 +39,15 @@ import { ApiServer } from '../src/api/server';
 class TestAgent {
   agentId: string;
   runtime: AgentRuntime;
-  commerce: any;
+  commerce: ICommercePlugin;
   transport: StvorTransportManager;
-  receivedMessages: any[] = [];
+  receivedMessages: IStvorMessage[] = [];
 
   constructor(
     agentId: string,
     transport: StvorTransportManager,
     jobStore?: MemoryJobStore,
-    reputationGate?: any,
+    reputationGate?: IPqcReputationGateHook,
   ) {
     this.agentId = agentId;
     this.transport = transport;
@@ -69,7 +72,7 @@ class TestAgent {
   /**
    * Simulate receiving a message from the transport.
    */
-  async receiveMessage(timeoutMs: number = 1000): Promise<any | null> {
+  async receiveMessage(timeoutMs: number = 1000): Promise<IStvorMessage | null> {
     return this.transport.receiveSecureMessage(timeoutMs);
   }
 
@@ -79,8 +82,8 @@ class TestAgent {
   async sendMessage(
     recipientId: string,
     jobId: string,
-    messageType: any,
-    payload: any,
+    messageType: 'job_prompt' | 'job_deliverable' | 'job_evaluation' | 'handshake',
+    payload: Record<string, unknown>,
   ): Promise<string> {
     return this.transport.sendSecurePayload(
       recipientId,
@@ -316,7 +319,7 @@ describe('Stvor Cloud E2E Commerce Flow', () => {
       BigInt(6_000_000),
     );
 
-    const fundedJob = await alice.commerce.fundJob(
+    await alice.commerce.fundJob(
       job.jobId,
       'alice_client',
       BigInt(6_000_000),
@@ -348,6 +351,8 @@ describe('Stvor Cloud E2E Commerce Flow', () => {
       },
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
     const abortedJob = await bob.commerce.getContext().jobStore.get(job.jobId);
     expect(abortedJob).not.toBeNull();
     expect(abortedJob?.state).toBe('ABORTED');
@@ -368,11 +373,15 @@ describe('Stvor Cloud E2E Commerce Flow', () => {
       BigInt(5_500_000),
     );
 
-    const client = (aliceTransport as any).client;
-    const originalSend = client.send.bind(client);
+    const client = aliceTransport as unknown as {
+      client: {
+        send: (recipientId: string, content: Record<string, unknown>) => Promise<{ id: string }>;
+      };
+    };
     let firstCall = true;
+    const originalSend = client.client.send.bind(client.client);
 
-    client.send = async (recipientId: string, content: any) => {
+    client.client.send = async (recipientId: string, content: Record<string, unknown>) => {
       if (firstCall) {
         firstCall = false;
         throw new Error('Ratchet state invalid: out-of-sync signature');

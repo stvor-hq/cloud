@@ -1,21 +1,18 @@
 import type { IElizaRuntime, Memory, State } from './types';
-import { IJobStore, ICommerceContext } from '../types';
+import type { IJobStore, ICommerceContext } from '../types';
 import { MemoryJobStore } from '../index';
+import { MockPqcReputationGate } from '../hooks';
 
 const contexts = new Map<string, { ctx: ICommerceContext; store: IJobStore }>();
 
 function getOrCreate(runtime: IElizaRuntime): { ctx: ICommerceContext; store: IJobStore } {
   if (!contexts.has(runtime.agentId)) {
     const store = new MemoryJobStore();
+    const gate = new MockPqcReputationGate();
     const ctx: ICommerceContext = {
-      runtime: {
-        agentId: runtime.agentId,
-        character: runtime.character,
-        getSetting: runtime.getSetting,
-        getMemoryManager: runtime.getMemoryManager,
-      } as unknown as any,
+      runtime,
       jobStore: store,
-      reputationGate: null as any,
+      reputationGate: gate,
     };
     contexts.set(runtime.agentId, { ctx, store });
   }

@@ -6,7 +6,11 @@ Quantum computers will eventually break ECDSA and Ed25519. The dangerous window 
 
 ## What we actually built (not claimed — built)
 
-- Real ML-KEM-768 via `@noble/post-quantum` → `bun test tests/crypto.test.ts`
+- Built `@stvor/web3` — Rust/WASM PQC SDK, 53 NIST test vectors,
+  zero npm dependencies → `cargo test` in github.com/sapogeth/web3-sdk
+- Stvor Cloud runs on our own verified crypto, not a third-party library
+- Same SDK supports TON Web3, EVM AA (Safe, ZeroDev, Biconomy), agent commerce
+- Real ML-KEM-768 via `@stvor/web3` → `bun test tests/crypto.test.ts`
 - Real ERC-8183 state machine with 5 states → `bun test tests/commerce-flow.test.ts`
 - Real ElizaOS plugin (4 actions, 1 provider, 1 evaluator) → `bun test tests/elizaos-plugin.test.ts`
 - Real cinematic demo → `bun start:demo`

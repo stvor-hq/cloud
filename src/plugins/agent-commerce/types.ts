@@ -5,7 +5,7 @@
  * Mock state machine for agent-to-agent commerce without on-chain deployment.
  */
 
-import { ERC8183JobState } from '../../core/types';
+import type { ERC8183JobState } from '../../core/types';
 
 /**
  * Evaluator function signature.
@@ -13,7 +13,7 @@ import { ERC8183JobState } from '../../core/types';
  */
 export type EvaluatorFunction = (
   deliverable: string,
-  requirements: Record<string, any>,
+  requirements: Record<string, unknown>,
 ) => Promise<boolean>;
 
 /**
@@ -31,7 +31,7 @@ export interface IErc8183Job {
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 /**
@@ -71,7 +71,7 @@ export interface IJobStore {
  * Passed to all commerce operations, carries runtime + hooks.
  */
 export interface ICommerceContext {
-  runtime: any; // Reference to AgentRuntime
+  runtime: unknown; // Reference to AgentRuntime
   jobStore: IJobStore;
   reputationGate: IPqcReputationGateHook;
 }

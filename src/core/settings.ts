@@ -5,7 +5,7 @@
  * Runs before the heavy runtime loads — critical for fast startup (<50ms target).
  */
 
-import { INodeSettings } from './types';
+import type { INodeSettings } from './types';
 
 /**
  * Initialize node settings from environment variables with fallbacks.
@@ -15,7 +15,7 @@ export function initializeSettings(): INodeSettings {
   return {
     mode: (process.env.STVOR_MODE as 'cli' | 'api') || 'cli',
     port: parseInt(process.env.STVOR_PORT || '8080', 10),
-    logLevel: (process.env.STVOR_LOG_LEVEL as any) || 'info',
+    logLevel: (process.env.STVOR_LOG_LEVEL || 'info') as INodeSettings['logLevel'],
     dbPath: process.env.STVOR_DB_PATH || './stvor.db',
     pqcEnabled: process.env.STVOR_PQC_ENABLED !== 'false',
     agentId: process.env.STVOR_AGENT_ID || `agent-${Date.now()}`,

@@ -5,16 +5,20 @@
  * relay is unavailable or when the environment is offline.
  */
 
-import { IStvorMessage } from './interfaces';
+import type { IStvorMessage } from './interfaces';
 
 interface IRelayParticipant {
-  handler?: (msg: any) => Promise<void> | void;
+  handler?: (msg: IStvorMessage) => Promise<void> | void;
   connected: boolean;
 }
 
 const relayRegistry = new Map<string, IRelayParticipant>();
 
-function createMessage(recipientId: string, senderId: string, content: any): IStvorMessage {
+function createMessage(
+  recipientId: string,
+  senderId: string,
+  content: IStvorMessage['content'],
+): IStvorMessage {
   return {
     id: `mock-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     from: senderId,
@@ -31,7 +35,7 @@ function createMessage(recipientId: string, senderId: string, content: any): ISt
 export class MockRelayClient {
   public userId: string;
   public isConnected = false;
-  private messageHandler: ((msg: any) => Promise<void> | void) | null = null;
+  private messageHandler: ((msg: IStvorMessage) => Promise<void> | void) | null = null;
 
   constructor(userId: string) {
     this.userId = userId;
@@ -52,7 +56,10 @@ export class MockRelayClient {
     console.log(`[MockRelay] ${this.userId} disconnected`);
   }
 
-  async send(recipientId: string, content: any): Promise<{ id: string }> {
+  async send(
+    recipientId: string,
+    content: IStvorMessage['content'],
+  ): Promise<{ id: string }> {
     const recipient = relayRegistry.get(recipientId);
     if (!recipient || !recipient.connected || !recipient.handler) {
       throw new Error(`MockRelay: recipient ${recipientId} unavailable`);
@@ -61,7 +68,7 @@ export class MockRelayClient {
     const msg = createMessage(recipientId, this.userId, content);
     setTimeout(() => {
       try {
-        recipient.handler!(msg);
+        recipient.handler?.(msg);
       } catch (error) {
         console.error(`[MockRelay] Delivery error: ${error}`);
       }
@@ -70,7 +77,7 @@ export class MockRelayClient {
     return { id: msg.id };
   }
 
-  onMessage(callback: (msg: any) => Promise<void> | void): void {
+  onMessage(callback: (msg: IStvorMessage) => Promise<void> | void): void {
     this.messageHandler = callback;
     const participant = relayRegistry.get(this.userId);
     if (participant) {
@@ -79,7 +86,7 @@ export class MockRelayClient {
     console.log(`[MockRelay] Message handler registered for ${this.userId}`);
   }
 
-  async getSession(agentId: string): Promise<any | null> {
+  async getSession(agentId: string): Promise<{ id: string; keyVersion: number; createdAt: number; expiresAt: number } | null> {
     return {
       id: `mock-session-${this.userId}-${agentId}`,
       keyVersion: 1,

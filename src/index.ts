@@ -17,7 +17,8 @@
 
 import { initializeSettings, validateSettings, printSettings } from './core/settings';
 import { AgentRuntime } from './core/runtime';
-import { createCommercePlugin, ICommercePlugin } from './plugins/agent-commerce';
+import type { ICommercePlugin } from './plugins/agent-commerce';
+import { createCommercePlugin } from './plugins/agent-commerce';
 import { createCommerceTransportBridge } from './plugins/agent-commerce/lifecycle';
 import { ApiServer } from './api/server';
 import { StvorTransportManager } from './transport/pqc';
@@ -47,7 +48,7 @@ function parseArgs(): 'cli' | 'api' {
  */
 async function initializeTransport(
   runtime: AgentRuntime,
-  commercePlugin: any,
+  commercePlugin: ICommercePlugin,
 ): Promise<StvorTransportManager> {
   const agentId = runtime.settings.agentId;
   const relayUrl = runtime.settings.relayUrl || 'local';
@@ -182,7 +183,7 @@ Other:
             } else {
               const job = await commerce.evaluateJob(
                 parts[1],
-                parts[2].toUpperCase() as any,
+                parts[2].toUpperCase() as 'ACCEPT' | 'REJECT' | 'PARTIAL',
               );
               console.log(`✓ Job evaluated: state=${job.state}`);
             }
@@ -203,7 +204,7 @@ Other:
             } else {
               const jobs = await commerce.listJobs(parts[1]);
               console.log(`✓ ${jobs.length} jobs:`);
-              jobs.forEach((j: any) => {
+              jobs.forEach((j) => {
                 console.log(
                   `  - ${j.jobId}: ${j.state} (created ${new Date(j.createdAt).toISOString()})`,
                 );

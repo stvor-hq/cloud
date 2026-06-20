@@ -8,7 +8,7 @@
  *   - Implement circuit breaker for RPC failures
  */
 
-import { IPqcReputationGateHook } from './types';
+import type { IPqcReputationGateHook } from './types';
 
 /**
  * MockPqcReputationGate: In-memory reputation store for Phase 1 testing.
