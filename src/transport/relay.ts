@@ -86,10 +86,29 @@ export async function createRelay(): Promise<IRelay> {
   const relayUrl = process.env.STVOR_RELAY_URL;
   const token = process.env.STVOR_APP_TOKEN ?? '';
 
+  const shouldAllowMock = (): boolean => {
+    const allowMock = process.env.STVOR_ALLOW_MOCK;
+    return allowMock === 'true';
+  };
+
   if (relayUrl && relayUrl.startsWith('wss://')) {
     const relay = new WebSocketRelay(relayUrl, token, process.env.STVOR_AGENT_ID ?? '');
     await relay.connect();
     return relay;
+  }
+
+  if (relayUrl === 'mock' || !relayUrl) {
+    if (!shouldAllowMock()) {
+      const isDev = process.env.NODE_ENV === 'development';
+      if (!isDev) {
+        throw new Error(
+          'Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
+        );
+      }
+      console.warn(
+        '[Relay] WARNING: Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
+      );
+    }
   }
 
   const { MockRelayClient } = await import('./mock-relay.js');

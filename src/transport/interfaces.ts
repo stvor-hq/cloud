@@ -41,6 +41,12 @@ export interface IStvorMessage {
     actionType?: string;
     version?: string;
   };
+
+  /** Whether the message was transmitted through encrypted Stvor transport */
+  encrypted?: boolean;
+
+  /** Stvor session ID for tracking encrypted sessions */
+  sessionId?: string;
 }
 
 /**

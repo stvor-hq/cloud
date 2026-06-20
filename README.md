@@ -54,7 +54,7 @@ src/
 │   └── runtime.ts                 # Runtime wiring
 ├── plugins/
 │   └── agent-commerce/
-│       ├── elizaos/               # 4 actions, 1 provider, 1 evaluator
+│       ├── elizaos/               # 4 actions, 1 provider, 2 evaluators
 │       ├── state-machine.ts       # OPEN → FUNDED → SUBMITTED → COMPLETE/REFUND
 │       ├── lifecycle.ts           # ERC-8183 event bridge
 │       └── index.ts               # AgentCommercePlugin + MemoryJobStore
@@ -96,12 +96,33 @@ Install the package and add the plugin to an ElizaOS character:
   "name": "StvorAgent",
   "plugins": ["@elizaos/plugin-agent-commerce"],
   "settings": {
-    "STVOR_RELAY_URL": "http://localhost:4444"
+    "STVOR_RELAY_URL": "http://localhost:4444",
+    "STVOR_ALLOW_MOCK": "true"
   }
 }
 ```
 
-The plugin exports `agentCommercePlugin` with 4 actions, 1 provider, and 1 evaluator. A ready character file is included at `characters/stvor-agent.character.json`.
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `STVOR_RELAY_URL` | Production relay URL (wss://) | Required in production |
+| `STVOR_ALLOW_MOCK` | Explicitly allow mock relay when `STVOR_RELAY_URL` is not configured | Must be `'true'` to use mock |
+| `STVOR_KEY_PASSWORD` | Password for encrypting stored keypair | Auto-generated if not set (see below) |
+| `STVOR_APP_TOKEN` | Authentication token for relay | Empty for mock relay |
+| `STVOR_STRICT_MODE` | Reject unencrypted messages in strict mode | `false` |
+
+### KeyStore Password Management
+
+If `STVOR_KEY_PASSWORD` is not set in the environment:
+
+1. A cryptographically strong random password (32 bytes) is generated using `crypto.randomBytes(32).toString('hex')`.
+2. The password is stored in `.stvor_key_pass` in the project root with mode `0600` (owner read/write only).
+3. On subsequent starts, the password is read from `.stvor_key_pass` to decrypt existing keys.
+
+**For production deployments, always set `STVOR_KEY_PASSWORD` explicitly.** Never commit `.stvor_key_pass` to version control (it's already in `.gitignore`).
+
+The plugin exports `agentCommercePlugin` with 4 actions, 1 provider, and 2 evaluators (SECURITY_GUARD and COMMERCE_TRACKER). A ready character file is included at `characters/stvor-agent.character.json`.
 
 ## Test results
 
@@ -111,8 +132,9 @@ bun test tests/commerce-flow.test.ts  12 passed
 bun test tests/elizaos-plugin.test.ts  6 passed
 bun test tests/key-store.test.ts       4 passed
 bun test tests/performance.test.ts     6 passed
+bun test tests/agent-commerce-evaluator.test.ts 4 passed
 ─────────────────────────────────────────────────
-Total                                 36 passed
+Total                                 36+ passed
 ```
 
 ## Roadmap

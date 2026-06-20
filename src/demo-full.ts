@@ -83,6 +83,7 @@ async function createAgent(name: string, id: string): Promise<DemoAgent> {
 
 async function main(): Promise<void> {
   process.env.STVOR_KEY_PASSWORD = process.env.STVOR_KEY_PASSWORD ?? 'stvor-demo-key-password';
+  process.env.STVOR_ALLOW_MOCK = 'true';
   const startedAt = Date.now();
   let encryptedMessages = 0;
   let escrow: EscrowReservation | null = null;

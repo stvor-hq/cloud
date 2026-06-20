@@ -20,6 +20,9 @@ data/keys/
 *.enc
 logs/
 
+# Key password file (auto-generated)
+.stvor_key_pass
+
 # OS
 .DS_Store
 Thumbs.db

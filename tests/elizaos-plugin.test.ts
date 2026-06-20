@@ -40,6 +40,13 @@ describe('agentCommercePlugin structure', () => {
     expect(names).toContain('SUBMIT_DELIVERABLE');
     expect(names).toContain('JOB_STATUS');
   });
+
+  it('exposes 2 evaluators', () => {
+    expect(agentCommercePlugin.evaluators).toHaveLength(2);
+    const names = agentCommercePlugin.evaluators.map((e) => e.name);
+    expect(names).toContain('SECURITY_GUARD');
+    expect(names).toContain('COMMERCE_TRACKER');
+  });
 });
 
 describe('CREATE_SECURE_JOB action', () => {
@@ -95,7 +102,7 @@ describe('commerce provider', () => {
 });
 
 describe('commerce evaluator', () => {
-  const evaluator = agentCommercePlugin.evaluators[0];
+  const evaluator = agentCommercePlugin.evaluators[1];
 
   it('validates messages containing job IDs', async () => {
     if (!evaluator) {

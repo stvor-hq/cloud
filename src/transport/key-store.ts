@@ -13,6 +13,10 @@ function getKeyFile(): string {
   return join(getKeyDir(), 'agent-keypair.enc');
 }
 
+function getPasswordFile(): string {
+  return join(process.cwd(), '.stvor_key_pass');
+}
+
 function deriveKey(password: string, salt: Buffer): Buffer {
   return scryptSync(password, salt, 32, { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
 }
@@ -37,13 +41,38 @@ function deserializeKeyPair(data: Record<string, string>): HybridKeyPair {
   };
 }
 
+function getPasswordFromEnvOrFile(): string | null {
+  const envPassword = process.env.STVOR_KEY_PASSWORD;
+  if (envPassword) {
+    return envPassword;
+  }
+
+  const passwordFile = getPasswordFile();
+  if (existsSync(passwordFile)) {
+    return readFileSync(passwordFile, 'utf8').trim();
+  }
+
+  return null;
+}
+
+function generateAndStorePassword(): string {
+  const password = randomBytes(32).toString('hex');
+  const passwordFile = getPasswordFile();
+  writeFileSync(passwordFile, password, { mode: 0o600 });
+  return password;
+}
+
 export class KeyStore {
   static save(keyPair: HybridKeyPair): void {
-    const password = process.env.STVOR_KEY_PASSWORD;
-    if (!password) {
-      console.warn('[KeyStore] WARNING: STVOR_KEY_PASSWORD not set. Using default password. Set this in production!');
+    const envPassword = process.env.STVOR_KEY_PASSWORD;
+    const filePassword = getPasswordFromEnvOrFile();
+    let pwd: string | undefined = envPassword ?? filePassword ?? undefined;
+    if (!pwd) {
+      pwd = generateAndStorePassword();
+      console.warn(
+        '[KeyStore] WARNING: No STVOR_KEY_PASSWORD set. Generated a random password and stored it in .stvor_key_pass. Add this file to .gitignore and keep it safe.',
+      );
     }
-    const pwd = password ?? 'stvor-dev-default-change-in-production';
 
     if (!existsSync(getKeyDir())) mkdirSync(getKeyDir(), { recursive: true });
 
@@ -64,7 +93,12 @@ export class KeyStore {
   static load(): HybridKeyPair | null {
     if (!existsSync(getKeyFile())) return null;
 
-    const password = process.env.STVOR_KEY_PASSWORD ?? 'stvor-dev-default-change-in-production';
+    const password: string | undefined = process.env.STVOR_KEY_PASSWORD ?? getPasswordFromEnvOrFile() ?? undefined;
+    if (!password) {
+      throw new Error(
+        'STVOR_KEY_PASSWORD not set and no stored password found. Set the environment variable or ensure .stvor_key_pass exists.',
+      );
+    }
     const combined = readFileSync(getKeyFile());
 
     const salt = combined.subarray(0, 16);
@@ -78,6 +112,10 @@ export class KeyStore {
 
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
     return deserializeKeyPair(JSON.parse(plaintext) as Record<string, string>);
+  }
+
+  static loadPassword(): string {
+    return getPasswordFromEnvOrFile() ?? generateAndStorePassword();
   }
 
   static loadOrGenerate(generateFn: () => HybridKeyPair): HybridKeyPair {

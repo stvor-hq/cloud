@@ -231,13 +231,45 @@ export class StvorTransportManager implements IStvorTransport {
     return this.keyPair.ik.public_key;
   }
 
+  private shouldAllowMock(): boolean {
+    const allowMock = process.env.STVOR_ALLOW_MOCK;
+    return allowMock === 'true';
+  }
+
+  private getRelayEnvValue(): string | undefined {
+    const url = process.env.STVOR_RELAY_URL;
+    if (!url || url === 'mock') {
+      return undefined;
+    }
+    return url;
+  }
+
+  private enforceMockRelay(): void {
+    const relayUrl = this.getRelayEnvValue();
+    if (!relayUrl && !this.shouldAllowMock()) {
+      const isDev = process.env.NODE_ENV === 'development';
+      if (isDev) {
+        console.warn(
+          '[StvorTransport] WARNING: Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
+        );
+        return;
+      }
+      throw new Error(
+        'Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
+      );
+    }
+  }
+
   async connect(): Promise<void> {
     try {
       console.log(`[StvorTransport] Connecting to relay: ${this.relayUrl || '[none]'}`);
 
-      if (!this.relayUrl || this.relayUrl === 'local') {
+      const isMockRelay = !this.relayUrl || this.relayUrl === 'mock';
+
+      if (isMockRelay) {
+        this.enforceMockRelay();
         console.warn(
-          `[RECOVERY-ACTIVE] STVOR_RELAY_URL not configured — using in-process mock relay`,
+          '[StvorTransport] Using in-process mock relay. Set STVOR_RELAY_URL for production.',
         );
         await this.useMockRelayClient();
         return;
@@ -245,8 +277,14 @@ export class StvorTransportManager implements IStvorTransport {
 
       const reachable = await this.probeRelayUrl(2000);
       if (!reachable) {
+        const allowMock = this.shouldAllowMock();
+        if (!allowMock) {
+          throw new Error(
+            'Production relay URL is not reachable. Set STVOR_ALLOW_MOCK=true to allow fallback to mock relay.',
+          );
+        }
         console.warn(
-          `[RECOVERY-ACTIVE] Relay unavailable within 2000ms — falling back to in-process mock transport`,
+          '[StvorTransport] Relay unavailable within 2000ms — falling back to in-process mock transport.',
         );
         await this.useMockRelayClient();
         return;
@@ -255,8 +293,17 @@ export class StvorTransportManager implements IStvorTransport {
       await this.useMockRelayClient();
       console.log(`[StvorTransport] Connected via in-process mock transport`);
     } catch (error) {
+      if (error instanceof Error && error.message.includes('not configured')) {
+        throw error;
+      }
+      const allowMock = this.shouldAllowMock();
+      if (!allowMock) {
+        throw new Error(
+          `Transport connect failed: ${error instanceof Error ? error.message : String(error)}. Set STVOR_ALLOW_MOCK=true to allow mock fallback.`,
+        );
+      }
       console.warn(
-        `[RECOVERY-ACTIVE] Transport connect failed: ${error instanceof Error ? error.message : String(error)}`,
+        `[StvorTransport] Transport connect failed: ${error instanceof Error ? error.message : String(error)}`,
       );
       await this.useMockRelayClient();
     }

@@ -110,6 +110,8 @@ describe('Stvor Cloud E2E Commerce Flow', () => {
   const hasher = new PayloadHasher();
 
   beforeAll(async () => {
+    process.env.STVOR_ALLOW_MOCK = 'true';
+
     console.log(
       '\n╔═══════════════════════════════════════════════════════════╗',
     );

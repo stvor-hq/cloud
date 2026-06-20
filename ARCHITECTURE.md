@@ -469,8 +469,31 @@ Keys are persisted encrypted at `STVOR_KEY_DIR/agent-keypair.enc` using:
 - **Encryption**: AES-256-GCM
 - **Password**: `STVOR_KEY_PASSWORD` environment variable
 
-For production, use a secrets manager (Vault, AWS Secrets Manager) to inject
-`STVOR_KEY_PASSWORD` at runtime. Never commit it to `.env`.
+**Important Security Change**: If `STVOR_KEY_PASSWORD` is not set:
+1. A cryptographically strong random password (32 bytes) is generated using `crypto.randomBytes(32).toString('hex')`.
+2. The password is stored in `.stvor_key_pass` in the project root with mode `0600`.
+3. On subsequent starts, the password is read from this file.
+
+For production deployments, always set `STVOR_KEY_PASSWORD` explicitly. Never commit `.stvor_key_pass` to version control.
+
+### Relay Configuration
+The relay fallback now requires explicit opt-in for security:
+- Set `STVOR_RELAY_URL=wss://relay.stvor.xyz` for production relay
+- If not configured or set to `'mock'`, the mock relay is only available when `STVOR_ALLOW_MOCK='true'`
+- In production (`NODE_ENV !== 'development'`), missing `STVOR_RELAY_URL` throws an error unless `STVOR_ALLOW_MOCK='true'`
+
+### ElizaOS Security Evaluator
+The plugin includes a `SECURITY_GUARD` evaluator that:
+- Hooks into every incoming message
+- Checks if `msg.encrypted === true` (messages received through Stvor transport have this flag)
+- In strict mode (`STVOR_STRICT_MODE='true'`): rejects unencrypted messages with an error
+- In non-strict mode (default): logs a warning for unencrypted messages but allows them to proceed
+
+Configure via environment or character settings:
+```
+STVOR_STRICT_MODE=true   # Reject unencrypted messages
+STVOR_STRICT_MODE=false  # Warn only (default)
+```
 
 ### Phase 3: Production Relay
 Replace `MockRelayClient` by setting:
@@ -484,7 +507,7 @@ STVOR_APP_TOKEN=<your-token>
 #### P3.1 — WebSocket Relay (`src/transport/relay.ts`)
 - Interface: `IRelay` with `connect`, `disconnect`, `send`, `onMessage`, `isConnected`, `getStats`
 - Implementation: `WebSocketRelay` (connects to `wss://relay.stvor.xyz`)
-- Factory: `createRelay()` returns `WebSocketRelay` if `STVOR_RELAY_URL` starts with `wss://`, else falls back to `MockRelayClient`
+- Factory: `createRelay()` returns `WebSocketRelay` if `STVOR_RELAY_URL` starts with `wss://`, else falls back to `MockRelayClient` **only if** `STVOR_ALLOW_MOCK='true'`
 
 #### P3.2 — Reputation Gate (`src/plugins/agent-commerce/reputation.ts`)
 - Interface: `IReputationGate` with `canFundJob`, `getScore`, `recordOutcome`
