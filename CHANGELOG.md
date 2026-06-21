@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Enterprise Production Hardening
+
+- **Cryptographic randomness**: Replaced `Math.random()` with `crypto.randomBytes()` in `src/agent-identity.ts` and `src/api/server.ts` for challenge generation.
+- **Production API key enforcement**: `STVOR_API_KEY` is now required when `NODE_ENV=production` or `STVOR_PRODUCTION_MODE=true`. The default `stvor-demo-key` is rejected in production.
+- **Production mode flag**: Added `STVOR_PRODUCTION_MODE`. When enabled:
+  - Requires `STVOR_RELAY_URL` with `wss://` scheme.
+  - Disables mock relay and `STVOR_ALLOW_MOCK`.
+  - Requires `STVOR_API_KEY` and `STVOR_KEY_PASSWORD`.
+  - Disables automatic `.stvor_key_pass` generation.
+- **Improved crypto error handling**: `sendSecurePayload()` and `dispatchMessage()` now log failures with unique event IDs, agent IDs, and timestamps instead of silently swallowing errors.
+- **Persistent rate limiting**: Added `IRateLimitStore` interface with file-based implementation. Automatically enabled in production mode.
+- **Persistent challenge storage**: Added `IChallengeStore` interface with file-based implementation. Challenges survive server restarts in production.
+- **Relay token enforcement**: `RELAY_TOKEN` is required in production mode for the relay server.
+- **Documentation**: Added "Enterprise Production Mode" section to `README.md` and `ARCHITECTURE.md`. Updated `.env.example` with new variables.
+
+## [Unreleased]
+
 ### Security Fixes
 
 - **Fixed critical mismatch between security evaluator and transport layer**: transport now adds `pqcEncrypted` flag to message `content`, and the evaluator checks `content.pqcEncrypted === true` instead of requiring a `pqcSignature`. This ensures end-to-end PQC validation actually works in strict mode.

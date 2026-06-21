@@ -17,10 +17,77 @@ import type { INodeSettings } from '../core/types';
 import type { AgentRuntime } from '../core/runtime';
 import type { ICommercePlugin } from '../plugins/agent-commerce';
 import type { StvorTransportManager } from '../transport/pqc';
+import { randomBytes } from 'crypto';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { dirname } from 'path';
 import { verifyAgentChallenge, type AgentChallenge } from '../agent-identity';
+import { isProductionMode, requireProductionEnv } from '../core/production';
 
 interface StoredAgentChallenge extends AgentChallenge {
   used: boolean;
+}
+
+export interface IChallengeStore {
+  get(challenge: string): StoredAgentChallenge | undefined;
+  set(challenge: string, value: StoredAgentChallenge): void;
+  delete(challenge: string): void;
+  clear(): void;
+}
+
+interface StoredAgentChallenge extends AgentChallenge {
+  used: boolean;
+}
+
+class FileChallengeStore implements IChallengeStore {
+  private readonly filePath: string;
+  private cache = new Map<string, StoredAgentChallenge>();
+  private dirty = false;
+
+  constructor(filePath: string) {
+    this.filePath = filePath;
+    this.load();
+  }
+
+  private load(): void {
+    try {
+      const data = readFileSync(this.filePath, 'utf8');
+      const entries = JSON.parse(data) as Record<string, StoredAgentChallenge>;
+      this.cache = new Map(Object.entries(entries));
+    } catch {
+      this.cache = new Map();
+    }
+  }
+
+  private persist(): void {
+    if (!this.dirty) return;
+    const dir = dirname(this.filePath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const data = JSON.stringify(Object.fromEntries(this.cache.entries()));
+    writeFileSync(this.filePath, data, { mode: 0o600 });
+    this.dirty = false;
+  }
+
+  get(challenge: string): StoredAgentChallenge | undefined {
+    return this.cache.get(challenge);
+  }
+
+  set(challenge: string, value: StoredAgentChallenge): void {
+    this.cache.set(challenge, value);
+    this.dirty = true;
+    this.persist();
+  }
+
+  delete(challenge: string): void {
+    this.cache.delete(challenge);
+    this.dirty = true;
+    this.persist();
+  }
+
+  clear(): void {
+    this.cache.clear();
+    this.dirty = true;
+    this.persist();
+  }
 }
 
 async function parseJSON(req: Request, maxBytes = 1_048_576): Promise<Record<string, unknown>> {
@@ -39,13 +106,35 @@ export class ApiServer {
   private transport: StvorTransportManager | null = null;
   private readonly apiKey: string;
   private server: ReturnType<typeof Bun.serve> | null = null;
-  private readonly agentChallenges = new Map<string, StoredAgentChallenge>();
+  private readonly agentChallenges: IChallengeStore;
 
   constructor(runtime: AgentRuntime, transport?: StvorTransportManager) {
     this.runtime = runtime;
     this.settings = runtime.settings;
     this.transport = transport || null;
-    this.apiKey = this.settings.apiKey || process.env.STVOR_API_KEY || 'stvor-demo-key';
+
+    const production = isProductionMode();
+    const apiKey = this.settings.apiKey || process.env.STVOR_API_KEY;
+
+    if (production) {
+      requireProductionEnv('STVOR_API_KEY');
+      this.apiKey = apiKey!;
+    } else {
+      if (!apiKey) {
+        console.warn(
+          '[API Server] WARNING: Using default API key "stvor-demo-key". This MUST be changed for production via STVOR_API_KEY.',
+        );
+      }
+      this.apiKey = apiKey || 'stvor-demo-key';
+    }
+
+    if (production) {
+      const challengePath = process.env.STVOR_CHALLENGE_STORE || './data/challenges.json';
+      this.agentChallenges = new FileChallengeStore(challengePath);
+      console.log('[API Server] Persistent challenge store enabled (file-based). For clusters, use Redis.');
+    } else {
+      this.agentChallenges = new Map() as unknown as IChallengeStore;
+    }
   }
 
   start(): void {
@@ -367,7 +456,7 @@ if (path.startsWith('/mcp/')) {
         return this._response(400, { error: 'publicKey query parameter required' });
       }
       const challenge = {
-        challenge: `stvor-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        challenge: `stvor-${Date.now()}-${randomBytes(16).toString('hex')}`,
         publicKey,
         expiresAt: Date.now() + 5 * 60 * 1000,
         createdAt: Date.now(),

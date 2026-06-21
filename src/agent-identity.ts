@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { randomBytes } from 'crypto';
 import { initSync, wasm_ec_sign, wasm_ec_verify, type WasmKeyPair } from '@stvor/web3/wasm';
 
 export interface AgentChallenge {
@@ -194,8 +195,9 @@ export class AgentIdentityService {
 
   createChallenge(publicKey = this.getPublicKey(), ttlMs = 5 * 60 * 1000): AgentChallenge {
     const now = Date.now();
+    const randomComponent = randomBytes(16).toString('hex');
     return {
-      challenge: `stvor-${now}-${Math.random().toString(36).slice(2)}`,
+      challenge: `stvor-${now}-${randomComponent}`,
       publicKey,
       expiresAt: now + ttlMs,
       createdAt: now,

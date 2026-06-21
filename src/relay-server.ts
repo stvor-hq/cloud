@@ -21,6 +21,10 @@ function getPort(): number {
 }
 
 function getExpectedToken(): string {
+  const production = process.env.NODE_ENV === 'production';
+  if (production && !process.env.RELAY_TOKEN) {
+    throw new Error('[Relay] RELAY_TOKEN is required in production mode.');
+  }
   return process.env.RELAY_TOKEN ?? 'stvor-relay-dev-token';
 }
 

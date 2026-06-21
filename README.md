@@ -71,6 +71,31 @@ An attacker capturing ciphertext today cannot recover plaintext even with a futu
 | STVOR_STRICT_MODE | Enforce PQC encryption | false |
 | STVOR_ALLOW_MOCK | Allow mock relay fallback | false |
 | STVOR_KEY_PASSWORD | Key encryption password | generated |
+| STVOR_PRODUCTION_MODE | Enable enterprise production mode | false |
+| STVOR_API_KEY | API server authentication key | stvor-demo-key (dev only) |
+| STVOR_CHALLENGE_STORE | Path to persistent challenge store | ./data/challenges.json |
+| STVOR_RATE_LIMIT_STORE | Path to persistent rate-limit store | ./data/rate-limits.json |
+| RELAY_TOKEN | Relay server authentication token | stvor-relay-dev-token |
+
+## Enterprise Production Mode
+
+Enable `STVOR_PRODUCTION_MODE=true` to activate hardened production defaults:
+
+- **Transport**: `STVOR_RELAY_URL` must be set and use `wss://`. Mock relay and `STVOR_ALLOW_MOCK` are disabled.
+- **API Key**: `STVOR_API_KEY` is required. The default `stvor-demo-key` is rejected.
+- **Key Password**: `STVOR_KEY_PASSWORD` is required. Automatic password generation (`.stvor_key_pass`) is disabled.
+- **Persistence**: Agent challenges and rate-limit state are stored on disk by default. For multi-instance deployments, replace with Redis (configurable via `STVOR_CHALLENGE_STORE` and `STVOR_RATE_LIMIT_STORE`).
+- **Relay**: `RELAY_TOKEN` is required when running the relay server in production.
+
+Example production `.env`:
+```env
+STVOR_PRODUCTION_MODE=true
+STVOR_RELAY_URL=wss://relay.your-domain.com
+STVOR_APP_TOKEN=<your-relay-token>
+STVOR_API_KEY=<your-strong-api-key>
+STVOR_KEY_PASSWORD=<your-strong-key-password>
+RELAY_TOKEN=<your-relay-token>
+```
 
 ## Self-hosted relay
 

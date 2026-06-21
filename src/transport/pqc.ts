@@ -7,13 +7,14 @@ import {
   wasm_hybrid_session_respond,
 } from '@stvor/web3/wasm';
 import { readFileSync } from 'fs';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { resolve } from 'path';
 import type { IStvorTransport, IStvorMessage, IStvorSession } from './interfaces';
 import { KeyStore } from './key-store';
 import { MockRelayClient } from './mock-relay';
 import { AgentIdentityService } from '../agent-identity';
 import { WebSocketRelay, type IRelay, type RelayMessage } from './relay';
+import { isProductionMode, requireProductionEnv, assertWssUrl } from '../core/production';
 
 // ─── WASM init (sync, Bun/Node compatible) ───────────────────────────────────
 
@@ -46,6 +47,18 @@ export interface EncryptedPayload {
   aliceIkPub: string;
   aliceSpkPub: string;
   ciphertext: string;
+}
+
+export class PqcEncryptionError extends Error {
+  constructor(
+    message: string,
+    public readonly agentId: string,
+    public readonly eventId: string,
+    public readonly timestamp: number,
+  ) {
+    super(message);
+    this.name = 'PqcEncryptionError';
+  }
 }
 
 // ─── HybridPQCTransport ──────────────────────────────────────────────────────
@@ -247,7 +260,19 @@ export class StvorTransportManager implements IStvorTransport {
   }
 
   private enforceMockRelay(): void {
+    const production = isProductionMode();
     const relayUrl = this.getRelayEnvValue();
+
+    if (production) {
+      if (!relayUrl) {
+        throw new Error(
+          '[Production] STVOR_RELAY_URL is required in production mode. Mock relay is disabled.',
+        );
+      }
+      assertWssUrl(relayUrl, 'STVOR_RELAY_URL');
+      return;
+    }
+
     if (!relayUrl && !this.shouldAllowMock()) {
       const isDev = process.env.NODE_ENV === 'development';
       if (isDev) {
@@ -263,6 +288,14 @@ export class StvorTransportManager implements IStvorTransport {
   }
 
   async connect(): Promise<void> {
+    const production = isProductionMode();
+
+    if (production) {
+      requireProductionEnv('STVOR_RELAY_URL');
+      assertWssUrl(this.relayUrl, 'STVOR_RELAY_URL');
+      console.log('[StvorTransport] Production mode: relay URL validated.');
+    }
+
     try {
       console.log(`[StvorTransport] Connecting to relay: ${this.relayUrl || '[none]'}`);
 
@@ -314,9 +347,13 @@ export class StvorTransportManager implements IStvorTransport {
     if (!message.payload) return;
 
     try {
-      void this.dispatchMessage(JSON.parse(message.payload) as IStvorMessage);
+      const parsed = JSON.parse(message.payload) as IStvorMessage;
+      void this.dispatchMessage(parsed);
     } catch {
-      // ignore malformed relay payload
+      const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
+      console.error(
+        `[PQC-Transport] Malformed relay payload agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()}`,
+      );
     }
   }
 
@@ -325,8 +362,12 @@ export class StvorTransportManager implements IStvorTransport {
     for (const handler of this.messageHandlers) {
       try {
         await handler(message);
-      } catch {
-        // ignore handler errors
+      } catch (error) {
+        const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error(
+          `[PQC-Transport] Handler error agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()} messageId=${message.id} error=${err.message}`,
+        );
       }
     }
   }
@@ -355,7 +396,7 @@ export class StvorTransportManager implements IStvorTransport {
     payload: Record<string, unknown>,
     _responseTimeoutMs?: number,
   ): Promise<string> {
-    const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const messageId = `msg-${Date.now()}-${randomBytes(8).toString('hex')}`;
     const message: IStvorMessage = {
       id: messageId,
       from: this.agentId,
@@ -377,7 +418,12 @@ export class StvorTransportManager implements IStvorTransport {
     if (this.client && 'send' in this.client) {
       try {
         await (this.client as unknown as { send: (m: IStvorMessage) => Promise<unknown> }).send(message);
-      } catch {
+      } catch (error) {
+        const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error(
+          `[PQC-Transport] Send failed agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()} messageId=${messageId} error=${err.message}`,
+        );
         this.messageBuffer.get(recipientId)?.push(message);
       }
     }

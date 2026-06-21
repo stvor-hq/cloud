@@ -6,6 +6,8 @@
  */
 
 import { Buffer } from 'buffer';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 16_384;
 const LLM_INJECTION_PATTERNS = [
@@ -28,7 +30,68 @@ const LLM_INJECTION_PATTERNS = [
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
-const rateLimitState = new Map<string, { count: number; resetTime: number }>();
+
+export interface IRateLimitStore {
+  get(agentId: string): { count: number; resetTime: number } | undefined;
+  set(agentId: string, value: { count: number; resetTime: number }): void;
+}
+
+class FileRateLimitStore implements IRateLimitStore {
+  private readonly filePath: string;
+  private cache = new Map<string, { count: number; resetTime: number }>();
+  private dirty = false;
+
+  constructor(filePath: string) {
+    this.filePath = filePath;
+    this.load();
+  }
+
+  private load(): void {
+    try {
+      const data = readFileSync(this.filePath, 'utf8');
+      const entries = JSON.parse(data) as Record<string, { count: number; resetTime: number }>;
+      this.cache = new Map(Object.entries(entries));
+      const now = Date.now();
+      for (const [key, value] of this.cache.entries()) {
+        if (now > value.resetTime) {
+          this.cache.delete(key);
+        }
+      }
+    } catch {
+      this.cache = new Map();
+    }
+  }
+
+  private persist(): void {
+    if (!this.dirty) return;
+    const dir = join(this.filePath, '..');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const data = JSON.stringify(Object.fromEntries(this.cache.entries()));
+    writeFileSync(this.filePath, data, { mode: 0o600 });
+    this.dirty = false;
+  }
+
+  get(agentId: string): { count: number; resetTime: number } | undefined {
+    return this.cache.get(agentId);
+  }
+
+  set(agentId: string, value: { count: number; resetTime: number }): void {
+    this.cache.set(agentId, value);
+    this.dirty = true;
+    this.persist();
+  }
+}
+
+function getRateLimitStore(): IRateLimitStore {
+  const production = process.env.STVOR_PRODUCTION_MODE === 'true' || process.env.NODE_ENV === 'production';
+  if (production) {
+    const path = process.env.STVOR_RATE_LIMIT_STORE || './data/rate-limits.json';
+    return new FileRateLimitStore(path);
+  }
+  return new Map() as unknown as IRateLimitStore;
+}
+
+const rateLimitStore = getRateLimitStore();
 
 export class SecurityGuard {
   static readonly MAX_PAYLOAD_BYTES = DEFAULT_MAX_PAYLOAD_BYTES;
@@ -56,18 +119,18 @@ export class SecurityGuard {
 
   static checkRateLimit(agentId: string): void {
     const now = Date.now();
-    const state = rateLimitState.get(agentId);
-    
+    const state = rateLimitStore.get(agentId);
+
     if (!state || now > state.resetTime) {
-      rateLimitState.set(agentId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+      rateLimitStore.set(agentId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
       return;
     }
-    
+
     if (state.count >= RATE_LIMIT_MAX_REQUESTS) {
       throw new Error(`[SECURITY-ALERT] Rate limit exceeded for agent ${agentId}`);
     }
-    
-    state.count++;
+
+    rateLimitStore.set(agentId, { count: state.count + 1, resetTime: state.resetTime });
   }
 
   static assertJobIdFormat(jobId: string): void {

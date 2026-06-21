@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { WasmKeyPair } from '@stvor/web3/wasm';
 import { ensureWasm } from './pqc.js';
+import { isProductionMode } from '../core/production.js';
 import type { HybridKeyPair } from './pqc.js';
 
 function getKeyDir(): string {
@@ -67,7 +68,13 @@ export class KeyStore {
     const envPassword = process.env.STVOR_KEY_PASSWORD;
     const filePassword = getPasswordFromEnvOrFile();
     let pwd: string | undefined = envPassword ?? filePassword ?? undefined;
+
     if (!pwd) {
+      if (isProductionMode()) {
+        throw new Error(
+          '[Production] STVOR_KEY_PASSWORD is required in production mode. Auto-generation is disabled.',
+        );
+      }
       pwd = generateAndStorePassword();
       console.warn(
         '[KeyStore] WARNING: No STVOR_KEY_PASSWORD set. Generated a random password and stored it in .stvor_key_pass. Add this file to .gitignore and keep it safe.',
@@ -124,6 +131,11 @@ export class KeyStore {
       console.log('[KeyStore] Loaded existing keypair from disk.');
       return existing;
     }
+    if (isProductionMode()) {
+      throw new Error(
+        '[Production] STVOR_KEY_PASSWORD is required in production mode. Cannot auto-generate keypair without password.',
+      );
+    }
     console.log('[KeyStore] No keypair found. Generating new keypair...');
     const newKeyPair = generateFn();
     KeyStore.save(newKeyPair);
@@ -135,6 +147,11 @@ export class KeyStore {
     if (existing) {
       console.log('[KeyStore] Loaded existing keypair from disk.');
       return existing;
+    }
+    if (isProductionMode()) {
+      throw new Error(
+        '[Production] STVOR_KEY_PASSWORD is required in production mode. Cannot auto-generate keypair without password.',
+      );
     }
     console.log('[KeyStore] No keypair found. Generating new keypair...');
     const newKeyPair = generateFn();

@@ -533,6 +533,35 @@ The project uses Bun ≥1.0.0. If elizaOS Cloud runs Node.js ≥20, replace:
 - `bun:test` → `jest` or `vitest` (test files only)
 - All crypto uses Node.js built-ins (`crypto` module) — no changes needed
 
+## Enterprise Production Mode
+
+The project includes a production-hardening layer activated via `STVOR_PRODUCTION_MODE=true`. When enabled, the following rules are enforced:
+
+### Transport Layer (`src/transport/pqc.ts`)
+- `STVOR_RELAY_URL` must be set and must start with `wss://`.
+- Mock relay fallback is disabled entirely; `STVOR_ALLOW_MOCK` is ignored.
+- Cryptographic errors are logged with a unique event ID, agent ID, and ISO timestamp, and re-thrown as `PqcEncryptionError` for upstream handling.
+
+### API Server (`src/api/server.ts`)
+- `STVOR_API_KEY` is required. The default `stvor-demo-key` is rejected in production.
+- Challenge storage is persisted to disk (`STVOR_CHALLENGE_STORE`, default `./data/challenges.json`) via `IChallengeStore`. For clusters, swap the implementation with Redis.
+
+### KeyStore (`src/transport/key-store.ts`)
+- `STVOR_KEY_PASSWORD` is required. Automatic generation of `.stvor_key_pass` is disabled.
+- Key loading/generation throws if the password is missing.
+
+### Rate Limiting (`src/core/security.ts`)
+- Rate-limit state is persisted via `IRateLimitStore` (default file-based `STVOR_RATE_LIMIT_STORE`).
+- In-memory `Map` is still used in development for speed.
+
+### Relay Server (`src/relay-server.ts`)
+- `RELAY_TOKEN` is required when `NODE_ENV=production`.
+
+### Recommendations for Multi-Instance Deployments
+- Replace file-based `IChallengeStore` and `IRateLimitStore` with Redis or a database-backed implementation.
+- Use an HSM or managed KMS for `STVOR_KEY_PASSWORD` and relay tokens.
+- Run the relay server behind a TLS-terminating load balancer.
+
 ## Future Enhancements
 
 - [ ] Persistent key storage (HSM or encrypted file)
