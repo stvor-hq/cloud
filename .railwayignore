@@ -1,0 +1,6 @@
+data/
+*.enc
+*.session
+.stvor_key_pass
+node_modules/
+dist/

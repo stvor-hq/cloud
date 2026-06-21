@@ -11,4 +11,4 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock ./
 COPY src ./src
 EXPOSE 8787
-CMD ["bun", "src/relay-server.ts"]
+CMD ["bun", "src/relay/server.ts"]

@@ -3,14 +3,15 @@
 // Set STVOR_RELAY_URL=wss://relay.stvor.xyz to use production relay.
 
 export interface RelayMessage {
+  type?: 'message';
   to: string;
-  from: string;
-  payload: string;
-  mlkemCt: string;
-  aliceIkPub: string;
-  aliceSpkPub: string;
-  timestamp: number;
-  messageId: string;
+  from?: string;
+  payload?: string;
+  mlkemCt?: string;
+  aliceIkPub?: string;
+  aliceSpkPub?: string;
+  timestamp?: number;
+  messageId?: string;
 }
 
 export interface IRelay {
@@ -30,7 +31,7 @@ export class WebSocketRelay implements IRelay {
   constructor(
     private readonly url: string,
     private readonly token: string,
-    private readonly agentId = process.env.STVOR_AGENT_ID ?? ''
+    private readonly agentId: string
   ) {}
 
   async connect(): Promise<void> {
@@ -40,12 +41,18 @@ export class WebSocketRelay implements IRelay {
       this.ws = new WebSocket(`${this.url}?${params.toString()}`);
       this.ws.onopen = () => {
         console.log(`[WebSocketRelay] Connected to ${this.url}`);
+        this.ws?.send(JSON.stringify({
+          type: 'register',
+          from: this.agentId,
+          timestamp: Date.now(),
+        }));
         resolve();
       };
       this.ws.onerror = (err) => reject(err);
       this.ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data as string) as RelayMessage;
+          if (msg.type !== 'message') return;
           this.stats.received++;
           for (const handler of this.handlers) handler(msg);
         } catch { /* ignore malformed */ }
@@ -66,7 +73,18 @@ export class WebSocketRelay implements IRelay {
       throw new Error('Relay not connected');
     }
     const start = Date.now();
-    this.ws.send(JSON.stringify(message));
+    const envelope: RelayMessage = {
+      type: 'message',
+      to,
+      payload: message.payload,
+      mlkemCt: message.mlkemCt,
+      aliceIkPub: message.aliceIkPub,
+      aliceSpkPub: message.aliceSpkPub,
+      messageId: message.messageId,
+      from: this.agentId,
+      timestamp: Date.now(),
+    };
+    this.ws.send(JSON.stringify(envelope));
     this.stats.sent++;
     this.stats.latencyMs = Date.now() - start;
   }
@@ -82,7 +100,7 @@ export class WebSocketRelay implements IRelay {
   getStats() { return { ...this.stats }; }
 }
 
-export async function createRelay(): Promise<IRelay> {
+export async function createRelay(agentId = process.env.STVOR_AGENT_ID ?? 'stvor-agent'): Promise<IRelay> {
   const relayUrl = process.env.STVOR_RELAY_URL;
   const token = process.env.STVOR_APP_TOKEN ?? '';
 
@@ -91,8 +109,8 @@ export async function createRelay(): Promise<IRelay> {
     return allowMock === 'true';
   };
 
-  if (relayUrl && relayUrl.startsWith('wss://')) {
-    const relay = new WebSocketRelay(relayUrl, token, process.env.STVOR_AGENT_ID ?? '');
+  if (relayUrl && (relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'))) {
+    const relay = new WebSocketRelay(relayUrl, token, agentId ?? 'stvor-agent');
     await relay.connect();
     return relay;
   }

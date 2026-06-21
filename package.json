@@ -8,10 +8,11 @@
     "start": "bun src/index.ts",
     "start:cli": "bun src/index.ts cli",
     "start:api": "bun src/index.ts api",
-    "start:relay": "bun src/relay-server.ts",
+    "start:relay": "bun src/relay/server.ts",
+    "relay": "bun src/relay/server.ts",
     "dev": "bun --watch src/index.ts api",
     "build": "bun build --outdir dist --minify src/index.ts",
-    "build:relay": "bun build --outdir dist src/relay-server.ts",
+    "build:relay": "bun build --outdir dist src/relay/server.ts",
     "type-check": "tsc --noEmit",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
@@ -19,7 +20,7 @@
     "test:commerce": "bun test tests/commerce-flow.test.ts",
     "start:demo": "bun run src/demo.ts",
     "demo:full": "bun src/demo-full.ts",
-    "deploy:relay": "bun build --outdir dist src/relay-server.ts && docker build -t ${RELAY_IMAGE:-stvor-hq/cloud-relay:latest} . && docker push ${RELAY_IMAGE:-stvor-hq/cloud-relay:latest}",
+    "deploy:relay": "bun build --outdir dist src/relay/server.ts && docker build -t ${RELAY_IMAGE:-stvor-hq/cloud-relay:latest} . && docker push ${RELAY_IMAGE:-stvor-hq/cloud-relay:latest}",
     "deploy:celo-testnet": "bun --cwd contracts hardhat run scripts/deploy-testnet.ts --network celo-alfajores",
     "demo:celo-transactions": "bun --cwd contracts hardhat run scripts/demo-transactions.ts --network celo-alfajores",
     "install:env": "bash install.sh"
@@ -41,12 +42,14 @@
   },
   "dependencies": {
     "@stvor/web3": "^0.3.0",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@elizaos/core": "^1.0.0",
     "@types/bun": "latest",
     "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^8.61.1",
     "@typescript-eslint/parser": "^8.61.1",
     "eslint": "^10.5.0",
