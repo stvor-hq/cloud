@@ -64,3 +64,22 @@ All notable changes to this project will be documented in this file.
 - `src/transport/interfaces.ts`: Added `encrypted` and `sessionId` fields to `IStvorMessage` interface
 - `src/plugins/agent-commerce/elizaos/evaluator.ts`: Added `securityEvaluator` for transport security validation
 - `src/plugins/agent-commerce/elizaos/index.ts`: Registered `securityEvaluator` in the plugin
+
+## [Unreleased] - Production Blocker Resolution
+
+### Critical Fixes
+
+- **CRIT-1 — PQC encryption now functional**: `StvorTransportManager.sendSecurePayload()` encrypts plaintext payloads with `HybridPQCTransport.encryptOnce()` before sending. The ciphertext (base64-encoded) replaces `content.data`, while the original plaintext hash is stored in `metadata.payloadHash` for ledger attestation. If recipient public keys are unavailable, the method throws a clear `PqcEncryptionError`.
+- **CRIT-2 — Job endpoint authentication**: All mutating job endpoints (`/api/jobs/create`, `/api/jobs/:id/fund`, `/api/jobs/:id/submit`, `/api/jobs/:id/evaluate`) now enforce `requireTransportAuth(req)` before processing, rejecting unauthenticated requests with 401.
+- **CRIT-3 — Relay agentId verification**: The WebSocket relay server now requires a challenge-response handshake before registering an `agentId`. On connection, the server sends a random challenge; the client must respond with a signature over that challenge using `verifyChallenge()` from `agent-identity.ts`. Registration is refused on verification failure.
+- **HIGH-4 — Rate limiting wired to API**: All mutating API endpoints (jobs, transport, x402) now call `SecurityGuard.checkRateLimit(agentId)` before processing. Requests exceeding the limit receive HTTP 429.
+
+### Added
+
+- **Encryption test**: `tests/commerce-flow.test.ts` includes a new test that verifies the sent payload is ciphertext and that the recipient can decrypt it back to the original plaintext using `MockRelayClient`.
+
+### Changed
+
+- `src/transport/pqc.ts`: Added `peerPublicKeys` registry and `registerPeerPublicKey()` for recipient key discovery. `MockRelayClient` now delivers messages directly to the recipient's handler, and `StvorTransportManager` properly wires relay handlers in mock mode.
+- `src/transport/mock-relay.ts`: Updated `send()` signature to accept `IStvorMessage` directly, preserving encryption metadata through the mock relay.
+- `src/transport/relay.ts`: Extended `RelayMessage` type to include challenge-response fields (`challenge`, `signature`, `publicKey`, `expiresAt`).

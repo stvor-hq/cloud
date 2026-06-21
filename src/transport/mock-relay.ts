@@ -14,24 +14,6 @@ interface IRelayParticipant {
 
 const relayRegistry = new Map<string, IRelayParticipant>();
 
-function createMessage(
-  recipientId: string,
-  senderId: string,
-  content: IStvorMessage['content'],
-): IStvorMessage {
-  return {
-    id: `mock-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    from: senderId,
-    to: recipientId,
-    timestamp: Date.now(),
-    content,
-    metadata: {
-      payloadHash: '',
-      version: 'mock-relay-v1',
-    },
-  };
-}
-
 export class MockRelayClient {
   public userId: string;
   public isConnected = false;
@@ -56,25 +38,22 @@ export class MockRelayClient {
     console.log(`[MockRelay] ${this.userId} disconnected`);
   }
 
-  async send(
-    recipientId: string,
-    content: IStvorMessage['content'],
-  ): Promise<{ id: string }> {
-    const recipient = relayRegistry.get(recipientId);
+  async send(message: IStvorMessage): Promise<{ id: string }> {
+    const recipient = relayRegistry.get(message.to);
     if (!recipient || !recipient.connected || !recipient.handler) {
-      throw new Error(`MockRelay: recipient ${recipientId} unavailable`);
+      throw new Error(`MockRelay: recipient ${message.to} unavailable`);
     }
 
-    const msg = createMessage(recipientId, this.userId, content);
+    const handler = recipient.handler;
     setTimeout(() => {
       try {
-        recipient.handler?.(msg);
+        handler(message);
       } catch (error) {
         console.error(`[MockRelay] Delivery error: ${error}`);
       }
     }, 10);
 
-    return { id: msg.id };
+    return { id: message.id };
   }
 
   onMessage(callback: (msg: IStvorMessage) => Promise<void> | void): void {

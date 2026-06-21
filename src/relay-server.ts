@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+import { verifyChallenge } from './agent-identity';
 import type { RelayMessage } from './transport/relay';
 
 interface RelaySocketData {
@@ -15,6 +17,7 @@ interface RelaySocket {
 
 const clientsByAgent = new Map<string, RelaySocket>();
 const clientsByToken = new Set<RelaySocket>();
+const pendingChallenges = new Map<string, { ws: RelaySocket; agentId: string; expiresAt: number }>();
 
 function getPort(): number {
   return Number(process.env.PORT ?? process.env.RELAY_PORT ?? 8787);
@@ -45,14 +48,51 @@ function unregisterSocket(ws: RelaySocket): void {
       clientsByAgent.delete(agentId);
     }
   }
+  for (const [challengeId, pending] of pendingChallenges) {
+    if (pending.ws === ws) {
+      pendingChallenges.delete(challengeId);
+    }
+  }
 }
 
 function handleRelayMessage(ws: RelaySocket, raw: RelayRawMessage): void {
   try {
-    const message = JSON.parse(Buffer.from(raw).toString('utf8')) as RelayMessage;
-    if (!message.from || !message.to) return;
+    const message = JSON.parse(Buffer.from(raw).toString('utf8')) as RelayMessage & Record<string, unknown>;
 
-    registerAgent(ws, message.from);
+    if (message.type === 'challenge_response') {
+      const challenge = message.challenge as string | undefined;
+      const signature = message.signature as string | undefined;
+      const publicKey = message.publicKey as string | undefined;
+      const pending = pendingChallenges.get(challenge ?? '');
+
+      if (!pending || pending.ws !== ws || !challenge || !signature || !publicKey) {
+        closeSocket(ws, 1008, 'Invalid or expired challenge');
+        return;
+      }
+
+      if (pending.expiresAt < Date.now()) {
+        pendingChallenges.delete(challenge);
+        closeSocket(ws, 1008, 'Challenge expired');
+        return;
+      }
+
+      const valid = verifyChallenge(challenge, signature, publicKey);
+      pendingChallenges.delete(challenge);
+
+      if (valid) {
+        registerAgent(ws, pending.agentId);
+        console.log(`[Relay] agent ${pending.agentId} authenticated via challenge-response`);
+      } else {
+        closeSocket(ws, 1008, 'Challenge verification failed');
+      }
+      return;
+    }
+
+    const agentId = ws.data?.agentId;
+    if (!agentId) {
+      closeSocket(ws, 1008, 'Challenge-response required before sending messages');
+      return;
+    }
 
     if (message.to === '*') {
       for (const client of clientsByToken) {
@@ -108,10 +148,16 @@ const server = Bun.serve({
 
       ws.data = { token, agentId };
       clientsByToken.add(ws);
+
       if (agentId) {
-        clientsByAgent.set(agentId, ws);
+        const challenge = `stvor-${Date.now()}-${randomBytes(16).toString('hex')}`;
+        const expiresAt = Date.now() + 5 * 60 * 1000;
+        pendingChallenges.set(challenge, { ws, agentId, expiresAt });
+        ws.send(JSON.stringify({ type: 'challenge', challenge, expiresAt }));
+        console.log(`[Relay] client connected token=${token} agentId=${agentId} (awaiting challenge-response)`);
+      } else {
+        console.log(`[Relay] client connected token=${token} agentId=-`);
       }
-      console.log(`[Relay] client connected token=${token} agentId=${agentId || '-'}`);
     },
     message(ws: RelaySocket, message: string | Buffer<ArrayBuffer>) {
       handleRelayMessage(ws, message);

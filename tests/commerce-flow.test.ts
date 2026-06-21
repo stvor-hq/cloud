@@ -28,7 +28,7 @@ import {
 } from '../src/plugins/agent-commerce';
 import { clearJobStore } from '../src/plugins/agent-commerce/state-machine';
 import { createCommerceTransportBridge } from '../src/plugins/agent-commerce/lifecycle';
-import { StvorTransportManager, PayloadHasher } from '../src/transport/pqc';
+import { StvorTransportManager, PayloadHasher, HybridPQCTransport, type EncryptedPayload } from '../src/transport/pqc';
 import type { IStvorMessage } from '../src/transport/interfaces';
 import type { IPqcReputationGateHook } from '../src/plugins/agent-commerce/types';
 import { ApiServer } from '../src/api/server';
@@ -165,6 +165,14 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
       sharedJobStore,
       sharedReputationGate,
     );
+
+    // Register peer public keys for PQC encryption
+    aliceTransport.registerPeerPublicKey('bob_provider', bobTransport.getKeyPair());
+    aliceTransport.registerPeerPublicKey('charlie_evaluator', charlieTransport.getKeyPair());
+    bobTransport.registerPeerPublicKey('alice_client', aliceTransport.getKeyPair());
+    bobTransport.registerPeerPublicKey('charlie_evaluator', charlieTransport.getKeyPair());
+    charlieTransport.registerPeerPublicKey('alice_client', aliceTransport.getKeyPair());
+    charlieTransport.registerPeerPublicKey('bob_provider', bobTransport.getKeyPair());
 
     // Connect all transports
     console.log('[Test] Connecting agents...');
@@ -311,6 +319,46 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
 
     expect(msgId).toBeDefined();
     expect(hash).toBeDefined();
+  });
+
+  it('should encrypt payload with PQC and recipient can decrypt it back', async () => {
+    const payload = {
+      secretData: 'quantum-resistant payload',
+      jobId: 'job-crypto-test',
+      instructions: 'Encrypt and verify',
+    };
+
+    let receivedContent: IStvorMessage['content'] | null = null;
+
+    bobTransport.onMessage(async (msg) => {
+      receivedContent = msg.content;
+    });
+
+    const msgId = await aliceTransport.sendSecurePayload(
+      'bob_provider',
+      'job-crypto-test',
+      'job_prompt',
+      payload,
+    );
+
+    expect(msgId).toBeDefined();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(receivedContent).not.toBeNull();
+    expect(receivedContent!.data).not.toEqual(payload);
+
+    const bobKeys = bobTransport.getKeyPair();
+    const encryptedPayload: EncryptedPayload = {
+      mlkemCt: receivedContent!.mlkemCt as string,
+      aliceIkPub: receivedContent!.aliceIkPub as string,
+      aliceSpkPub: receivedContent!.aliceSpkPub as string,
+      ciphertext: receivedContent!.data as string,
+    };
+
+    const decrypted = HybridPQCTransport.decryptOnce(bobKeys, encryptedPayload);
+    const decryptedJson = new TextDecoder().decode(decrypted);
+    expect(JSON.parse(decryptedJson)).toEqual(payload);
   });
 
   it('should abort job on malicious prompt injection to provider', async () => {
@@ -619,6 +667,7 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
       relayUrl: 'http://localhost:4444',
     });
     await transport.connect();
+    transport.registerPeerPublicKey('bob_provider', bobTransport.getKeyPair());
     const apiServer = new ApiServer(runtime, transport);
     apiServer.start();
 

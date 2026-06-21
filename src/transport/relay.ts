@@ -3,7 +3,7 @@
 // Set STVOR_RELAY_URL=wss://relay.stvor.xyz to use production relay.
 
 export interface RelayMessage {
-  type?: 'message';
+  type?: 'message' | 'challenge' | 'challenge_response' | 'register';
   to: string;
   from?: string;
   payload?: string;
@@ -12,6 +12,10 @@ export interface RelayMessage {
   aliceSpkPub?: string;
   timestamp?: number;
   messageId?: string;
+  challenge?: string;
+  signature?: string;
+  publicKey?: string;
+  expiresAt?: number;
 }
 
 export interface IRelay {

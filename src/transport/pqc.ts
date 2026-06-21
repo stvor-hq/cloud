@@ -208,6 +208,7 @@ export class StvorTransportManager implements IStvorTransport {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private messageBuffer: Map<string, IStvorMessage[]> = new Map();
   private sessionCache: Map<string, IStvorSession> = new Map();
+  private peerPublicKeys: Map<string, HybridKeyPair> = new Map();
   private isMockRelay = false;
   private static readonly MAX_BUFFER_PER_AGENT = 128;
   private static readonly MAX_SESSION_CACHE_SIZE = 128;
@@ -244,6 +245,14 @@ export class StvorTransportManager implements IStvorTransport {
 
   getPublicKey(): string {
     return this.keyPair.ik.public_key;
+  }
+
+  getKeyPair(): HybridKeyPair {
+    return this.keyPair;
+  }
+
+  registerPeerPublicKey(agentId: string, keys: HybridKeyPair): void {
+    this.peerPublicKeys.set(agentId, keys);
   }
 
   private shouldAllowMock(): boolean {
@@ -343,18 +352,24 @@ export class StvorTransportManager implements IStvorTransport {
     }
   }
 
-  private handleRelayMessage(message: RelayMessage): void {
-    if (!message.payload) return;
-
-    try {
-      const parsed = JSON.parse(message.payload) as IStvorMessage;
-      void this.dispatchMessage(parsed);
-    } catch {
-      const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
-      console.error(
-        `[PQC-Transport] Malformed relay payload agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()}`,
-      );
+  private handleRelayMessage(message: RelayMessage | IStvorMessage): void {
+    let parsed: IStvorMessage;
+    if ('payload' in message && typeof (message as RelayMessage).payload === 'string') {
+      const relayMsg = message as RelayMessage;
+      if (!relayMsg.payload) return;
+      try {
+        parsed = JSON.parse(relayMsg.payload) as IStvorMessage;
+      } catch {
+        const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
+        console.error(
+          `[PQC-Transport] Malformed relay payload agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()}`,
+        );
+        return;
+      }
+    } else {
+      parsed = message as IStvorMessage;
     }
+    void this.dispatchMessage(parsed);
   }
 
   private async dispatchMessage(message: IStvorMessage): Promise<void> {
@@ -373,7 +388,15 @@ export class StvorTransportManager implements IStvorTransport {
   }
 
   private async useMockRelayClient(): Promise<void> {
-    this.client = new MockRelayClient(this.agentId) as unknown as IStvorClient;
+    const mockClient = new MockRelayClient(this.agentId);
+    await mockClient.connect();
+    mockClient.onMessage((message) => this.handleRelayMessage(message));
+    this.client = {
+      send: async (message: IStvorMessage) => {
+        await mockClient.send(message);
+        return { id: message.id };
+      },
+    };
     this.isMockRelay = true;
   }
 
@@ -397,6 +420,27 @@ export class StvorTransportManager implements IStvorTransport {
     _responseTimeoutMs?: number,
   ): Promise<string> {
     const messageId = `msg-${Date.now()}-${randomBytes(8).toString('hex')}`;
+
+    const recipientKeys = this.peerPublicKeys.get(recipientId);
+    if (!recipientKeys) {
+      throw new PqcEncryptionError(
+        `No public key available for recipient ${recipientId}. Register peer keys before sending.`,
+        this.agentId,
+        messageId,
+        Date.now(),
+      );
+    }
+
+    const payloadHash = PayloadHasher.hashPayload(payload);
+    const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+    const encrypted = HybridPQCTransport.encryptOnce(
+      this.keyPair,
+      recipientKeys.ik.public_key,
+      recipientKeys.spk.public_key,
+      recipientKeys.pqc.ek,
+      plaintext,
+    );
+
     const message: IStvorMessage = {
       id: messageId,
       from: this.agentId,
@@ -408,12 +452,21 @@ export class StvorTransportManager implements IStvorTransport {
       content: {
         type: messageType,
         jobId,
-        data: payload,
+        data: encrypted.ciphertext,
         encrypted: true,
         pqcEncrypted: true,
         encryption: 'ML-KEM-768 + Double Ratchet + AES-256-GCM',
+        mlkemCt: encrypted.mlkemCt,
+        aliceIkPub: encrypted.aliceIkPub,
+        aliceSpkPub: encrypted.aliceSpkPub,
+      },
+      metadata: {
+        payloadHash,
+        version: 'pqc-v1',
       },
     };
+
+    this.stats.encryptionOps++;
 
     if (this.client && 'send' in this.client) {
       try {

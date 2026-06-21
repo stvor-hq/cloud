@@ -22,6 +22,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import { verifyAgentChallenge, type AgentChallenge } from '../agent-identity';
 import { isProductionMode, requireProductionEnv } from '../core/production';
+import { SecurityGuard } from '../core/security';
 
 interface StoredAgentChallenge extends AgentChallenge {
   used: boolean;
@@ -228,8 +229,10 @@ if (path.startsWith('/mcp/')) {
       if (!commerce) {
         return this._response(503, { error: 'Commerce plugin not loaded' });
       }
+      this.requireTransportAuth(req);
       try {
         const body = await parseJSON(req);
+        SecurityGuard.checkRateLimit(body.clientAgent as string);
         const {
           clientAgent,
           providerAgent,
@@ -257,9 +260,11 @@ if (path.startsWith('/mcp/')) {
       if (!commerce) {
         return this._response(503, { error: 'Commerce plugin not loaded' });
       }
+      this.requireTransportAuth(req);
       try {
         const jobId = path.split('/')[3];
         const body = await parseJSON(req);
+        SecurityGuard.checkRateLimit(body.clientAgent as string);
         const { clientAgent, fundAmount } = body as Record<string, unknown>;
 
         const job = await commerce.fundJob(
@@ -281,9 +286,11 @@ if (path.startsWith('/mcp/')) {
       if (!commerce) {
         return this._response(503, { error: 'Commerce plugin not loaded' });
       }
+      this.requireTransportAuth(req);
       try {
         const jobId = path.split('/')[3];
         const body = await parseJSON(req);
+        SecurityGuard.checkRateLimit(body.providerAgent as string);
         const { providerAgent, deliverableHash } = body as Record<string, unknown>;
 
         const job = await commerce.submitJob(
@@ -305,9 +312,11 @@ if (path.startsWith('/mcp/')) {
       if (!commerce) {
         return this._response(503, { error: 'Commerce plugin not loaded' });
       }
+      this.requireTransportAuth(req);
       try {
         const jobId = path.split('/')[3];
         const body = await parseJSON(req);
+        SecurityGuard.checkRateLimit(this.settings.agentId);
         const { decision, reason } = body as Record<string, unknown>;
 
         const job = await commerce.evaluateJob(jobId, decision as 'ACCEPT' | 'REJECT' | 'PARTIAL', reason as string | undefined);
@@ -364,6 +373,8 @@ if (path.startsWith('/mcp/')) {
         if (!['job_prompt', 'job_deliverable', 'job_evaluation', 'handshake'].includes(messageType)) {
           return this._response(400, { error: 'Invalid messageType' });
         }
+
+        SecurityGuard.checkRateLimit(recipientId);
 
         const msgId = await this.transport.sendSecurePayload(
           recipientId,
@@ -505,6 +516,7 @@ if (path.startsWith('/mcp/')) {
       if (paymentResult) return paymentResult;
 
       const body = await parseJSON(req) as { jobId: string };
+      SecurityGuard.checkRateLimit(body.jobId);
       return this._response(200, {
         success: true,
         jobId: body.jobId,
