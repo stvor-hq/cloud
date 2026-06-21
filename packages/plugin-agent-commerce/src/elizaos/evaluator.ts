@@ -1,11 +1,16 @@
-import type { IElizaRuntime, Memory, State } from './types';
+import type { Memory, State } from './types';
+import type { IElizaRuntime } from './types';
 import { persistMemory } from './memory.js';
+import { SecurityGuard } from '../lib/security';
+
+export { SecurityGuard };
 
 type SecurityMessageContent = {
   text?: string;
   encrypted?: boolean;
   pqcEncrypted?: boolean;
   encryption?: string;
+  pqcSignature?: string;
   from?: string;
   sessionId?: string;
   [key: string]: unknown;
@@ -13,12 +18,13 @@ type SecurityMessageContent = {
 
 const getStrictMode = (runtime?: IElizaRuntime): boolean => {
   const runtimeStrictMode = runtime?.getSetting('STVOR_STRICT_MODE');
-  const strictMode = runtimeStrictMode ?? process.env.STVOR_STRICT_MODE;
-  return strictMode === 'true';
+  if (runtimeStrictMode === 'true') return true;
+  return process.env.STVOR_STRICT_MODE === 'true';
 };
 
 const isPqcEncryptedContent = (content: SecurityMessageContent): boolean => {
   const explicitlyEncrypted = content.encrypted === true || content.pqcEncrypted === true;
+  const hasPqcSignature = typeof content.pqcSignature === 'string' && content.pqcSignature.length > 0;
   const encryption = String(content.encryption ?? '').toLowerCase();
   const hasPqcSignal =
     encryption.includes('ml-kem') ||
@@ -26,7 +32,7 @@ const isPqcEncryptedContent = (content: SecurityMessageContent): boolean => {
     encryption.includes('double ratchet') ||
     encryption.includes('aes-256-gcm');
 
-  return explicitlyEncrypted && hasPqcSignal;
+  return explicitlyEncrypted && hasPqcSignal && hasPqcSignature;
 };
 
 export const securityEvaluator = {
@@ -53,8 +59,9 @@ export const securityEvaluator = {
 
     if (getStrictMode(runtime)) {
       const encryption = stvorMessage.encryption ? ` encryption=${stvorMessage.encryption}` : '';
+      const hasSignature = stvorMessage.pqcSignature ? ' present' : ' missing';
       throw new Error(
-        `[SECURITY-GUARD] Non-PQC message received from ${sender}.${encryption} In strict mode, only ML-KEM-768/PQC encrypted Stvor AI Security transport messages are allowed.`,
+        `[SECURITY-GUARD] Non-PQC message received from ${sender}.${encryption} PQC signature ${hasSignature}. In strict mode, only ML-KEM-768/PQC signed Stvor AI Security transport messages are allowed.`,
       );
     }
 

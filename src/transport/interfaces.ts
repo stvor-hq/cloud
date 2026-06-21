@@ -45,6 +45,12 @@ export interface IStvorMessage {
   /** Whether the message was transmitted through encrypted Stvor transport */
   encrypted?: boolean;
 
+  /** Whether the message used post-quantum cryptography */
+  pqcEncrypted?: boolean;
+
+  /** Crypto transport metadata, e.g. ML-KEM-768 + Double Ratchet */
+  encryption?: string;
+
   /** Stvor session ID for tracking encrypted sessions */
   sessionId?: string;
 }

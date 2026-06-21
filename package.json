@@ -1,7 +1,7 @@
 {
-  "name": "stvor-cloud",
+  "name": "stvor-ai-security",
   "version": "0.1.0",
-  "description": "Secure Agent-to-Agent Operator Node for Hermes Hackathon — ERC-8183 Commerce Protocol + Post-Quantum Cryptography",
+  "description": "Quantum-Resistant Secure Agent-to-Agent Operator Node — ERC-8183 Commerce Protocol + Post-Quantum Cryptography",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
@@ -13,6 +13,7 @@
     "dev": "bun --watch src/index.ts api",
     "build": "bun build --outdir dist --minify src/index.ts",
     "build:relay": "bun build --outdir dist src/relay/server.ts",
+    "build:plugin": "bun --cwd packages/plugin-agent-commerce build",
     "type-check": "tsc --noEmit",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
@@ -33,7 +34,8 @@
     "erc8183",
     "pqc",
     "encryption",
-    "elizaos"
+    "elizaos",
+    "ai-security"
   ],
   "author": "Stvor Labs",
   "license": "MIT",

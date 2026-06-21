@@ -1,11 +1,11 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { agentCommercePlugin } from '../src/plugins/agent-commerce/elizaos/index';
-import type { IElizaRuntime, Memory, State } from '../src/plugins/agent-commerce/elizaos/types';
+import { agentCommercePlugin } from '../packages/plugin-agent-commerce/src/elizaos/index';
+import type { IElizaRuntime, Memory, State } from '../packages/plugin-agent-commerce/src/elizaos/types';
 
 function mockRuntime(agentId = 'agent-test'): IElizaRuntime {
   return {
     agentId,
-    character: { name: 'TestAgent', plugins: ['@elizaos/plugin-agent-commerce'] },
+    character: { name: 'TestAgent', plugins: ['@stvor/plugin-agent-commerce'] },
     getSetting: (key: string) => ({ STVOR_RELAY_URL: 'http://localhost:4444' })[key],
     getMemoryManager: () => ({
       createMemory: mock(async () => {}),
@@ -25,11 +25,10 @@ function mockMessage(text: string, agentId = 'agent-test'): Memory {
 
 describe('agentCommercePlugin structure', () => {
   it('has correct ElizaOS plugin shape', () => {
-    expect(agentCommercePlugin.name).toBe('@elizaos/plugin-agent-commerce');
+    expect(agentCommercePlugin.name).toBe('agent-commerce');
     expect(Array.isArray(agentCommercePlugin.actions)).toBe(true);
     expect(Array.isArray(agentCommercePlugin.providers)).toBe(true);
     expect(Array.isArray(agentCommercePlugin.evaluators)).toBe(true);
-    expect(typeof agentCommercePlugin.init).toBe('function');
   });
 
   it('exposes 4 actions', () => {

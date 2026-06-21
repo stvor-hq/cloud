@@ -1,7 +1,7 @@
 /**
  * @file Main Entry Point (Hybrid CLI/API with PQC Transport)
  * 
- * Doolittle-style CLI entry point for Stvor Cloud.
+ * Doolittle-style CLI entry point for Stvor AI Security.
  * Supports two boot modes:
  *   - `bun start cli`  : Interactive CLI with ElizaOS prompt loop + transport
  *   - `bun start api`  : HTTP API server with integrated Stvor relay
@@ -247,7 +247,7 @@ Other:
     });
   };
 
-  console.log('\n=== Stvor Cloud Agent Node (CLI Mode) ===');
+  console.log('\n=== Stvor AI Security Agent Node (CLI Mode) ===');
   console.log('Type "help" for available commands\n');
   prompt();
 }

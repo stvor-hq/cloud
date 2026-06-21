@@ -1,5 +1,5 @@
 // src/x402/index.ts
-// x402 payment protocol implementation for Stvor Cloud agents.
+// x402 payment protocol implementation for Stvor AI Security agents.
 // Spec: https://x402.org
 
 import { createHash, randomBytes } from 'crypto';

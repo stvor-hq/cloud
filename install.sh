@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installer for Stvor Cloud demo — one-command setup
+# Installer for Stvor AI Security demo — one-command setup
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ for arg in "$@"; do
   esac
 done
 
-echo -e "${CYAN}Stvor Cloud installer — preparing demo environment...${RESET}"
+echo -e "${CYAN}Stvor AI Security installer — preparing demo environment...${RESET}"
 
 if [ "$NO_INSTALL" -eq 0 ]; then
   if command -v bun >/dev/null 2>&1; then
@@ -36,7 +36,7 @@ ENV_FILE=".env"
 if [ ! -f "$ENV_FILE" ]; then
   echo -e "${GREEN}Creating default .env file...${RESET}"
   cat > "$ENV_FILE" <<EOF
-# Stvor Cloud demo env defaults
+# Stvor AI Security demo env defaults
 STVOR_RELAY_URL=http://localhost:4444
 ALICE_TOKEN=stvor_test_alice
 BOB_TOKEN=stvor_test_bob
@@ -65,7 +65,7 @@ echo -e "${GREEN}Install complete.${RESET}"
 echo -e "Run the demo with: ${CYAN}bun start:demo${RESET}"
 
 
-# Stvor Cloud — Environment Setup with Stvor SDK
+# Stvor AI Security — Environment Setup with Stvor SDK
 # 
 # This script initializes a local development environment for the Secure Agent-to-Agent Node.
 # It sets up the database, environment variables, Stvor SDK integration, and validates dependencies.
@@ -73,7 +73,7 @@ echo -e "Run the demo with: ${CYAN}bun start:demo${RESET}"
 set -euo pipefail
 
 echo "╔═══════════════════════════════════════════════════════════╗"
-echo "║  Stvor Cloud - Environment Setup (Phase 2: PQC Transport) ║"
+echo "║  Stvor AI Security - Environment Setup (Phase 2: PQC Transport) ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 
 # Check Bun installation
@@ -100,7 +100,7 @@ echo "✓ Database initialized: ./data/stvor.db"
 # Create environment file if it doesn't exist
 if [ ! -f .env.local ]; then
   cat > .env.local << 'EOF'
-# Stvor Cloud Environment (Phase 2: PQC Transport)
+# Stvor AI Security Environment (Phase 2: PQC Transport)
 STVOR_MODE=api
 STVOR_PORT=8080
 STVOR_LOG_LEVEL=info

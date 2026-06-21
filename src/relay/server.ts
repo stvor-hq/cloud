@@ -1,5 +1,5 @@
 // src/relay/server.ts
-// Production WebSocket relay for Stvor Cloud.
+// Production WebSocket relay for Stvor AI Security.
 // Deploy to Railway: railway up
 
 import { createServer } from 'http';
@@ -227,7 +227,7 @@ setInterval(() => {
 }, 30_000);
 
 httpServer.listen(PORT, () => {
-  console.log(`[relay] Stvor Cloud relay listening on port ${PORT}`);
+  console.log(`[relay] Stvor AI Security relay listening on port ${PORT}`);
   console.log(`[relay] Auth: ${APP_TOKEN ? 'enabled' : 'disabled (open)'}`);
   console.log(`[relay] Max connections: ${MAX_CONNECTIONS}`);
 });

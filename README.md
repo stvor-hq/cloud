@@ -1,208 +1,181 @@
-# Stvor Cloud
-### Post-Quantum, End-to-End Encrypted Agentic Commerce
+# Stvor AI Security
 
-> The only ERC-8183 implementation where **funds and secrets are both provably secure** —
-> against classical attackers today and quantum computers tomorrow.
+Quantum-resistant secure agent commerce for ElizaOS: ERC-8183 escrow, ML-KEM-768 transport, tamper-evident audit logs, and prompt-injection protection in one plugin.
 
-[![Tests](https://img.shields.io/badge/tests-38%20passing-brightgreen)]()
+> Formerly **Stvor Cloud**. Rebranded for the ElizaOS core PR and the Nous Research / NVIDIA / Stripe Hackathon.
+
+[![Tests](https://img.shields.io/badge/tests-ready-brightgreen)]()
 [![PQC](https://img.shields.io/badge/crypto-ML--KEM--768-blue)]()
 [![ElizaOS](https://img.shields.io/badge/ElizaOS-plugin%20compatible-purple)]()
+[![ERC-8183](https://img.shields.io/badge/protocol-ERC--8183-orange)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
-## The problem
+## Repository
 
-Every existing agent commerce system has the same flaw: sensitive payloads — prompts, API keys, deliverables — travel in plaintext or under classical encryption that quantum computers will break. ERC-8183 defines the protocol, but not the security. Stvor Cloud adds it.
+- Plugin package: `packages/plugin-agent-commerce`
+- Package name: `@elizaos/plugin-agent-commerce`
+- Repository URL: `https://github.com/stvor-hq/ai-security`
+- Relay package: standalone secure relay at `src/relay/server.ts`
 
-## Implementation Status
+## What it does
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| ML-KEM-768 + Double Ratchet | ✅ Production | Rust/WASM via `@stvor/web3`, 53 NIST vectors |
-| Key storage (AES-256-GCM) | ✅ Production | Encrypted at rest, scrypt KDF (N=2^17) |
-| SecurityGuard | ✅ Production | Prompt injection vectors covered |
-| ERC-8183 state machine | ✅ Production | 5 states (OPEN→FUNDED→SUBMITTED→COMPLETE/REFUND/ABORTED) |
-| ElizaOS plugin | ✅ Production | 4 actions, 1 provider, 2 evaluators |
-| On-chain contract | ⚠️ Compiled | `contracts/AgenticCommerce.sol` ready for Sepolia deployment |
-| Production relay | ✅ Standalone | `bun start:relay`, deployable to Railway free tier |
-| x402 blockchain signing | 🔜 Next milestone | Protocol layer complete, EIP-712 signing pending |
-| Session persistence | ✅ Production | Double Ratchet + memory persisted via HybridMemoryManager |
+Stvor AI Security protects both sides of agent commerce:
 
-## What makes us different
+1. **Economic trust** — ERC-8183-compatible job lifecycle for OPEN, FUNDED, SUBMITTED, COMPLETE, REFUND, and ABORTED states.
+2. **Information trust** — ML-KEM-768 + Double Ratchet + AES-256-GCM transport for prompts, deliverables, and evaluation payloads.
+3. **Runtime safety** — SecurityGuard evaluator blocks non-PQC traffic when `STVOR_STRICT_MODE=true`.
+4. **Tamper evidence** — SHA-256 hash-chain audit logging for sensitive agent events.
+5. **Payment UX** — x402-style Payment Required flow with a link-cli bridge path for Stripe Skills workflows.
 
-| | Classical agent systems | Stvor Cloud |
-|--|--|--|
-| Prompt security | Plaintext in logs | ML-KEM-768 + AES-256-GCM |
-| Quantum resistance | ❌ ECDSA/Ed25519 broken by Shor's | ✅ ML-KEM-768 (NIST FIPS 203) |
-| Ledger data | Full payload stored | SHA-256 hash only |
-| Prompt injection | Unprotected | SecurityGuard runtime filter |
-| ElizaOS | Not compatible | Drop-in plugin |
-| Demo | README only | `bun start:demo` — live, cinematic |
+## ElizaOS Quick Start
 
-## Quick start
-
-```bash
-./install.sh
-bun start:demo
-```
-
-## Deployment
-
-### Relay Server (Railway — free tier)
-
-1. Fork this repo or push to GitHub
-2. Go to railway.app → New Project → Deploy from GitHub
-3. Select this repo
-4. Railway auto-detects `railway.json` and deploys
-5. Set environment variables in Railway dashboard:
-   - `STVOR_APP_TOKEN` — any random string for auth
-   - `PORT` — Railway sets this automatically
-6. Copy the Railway URL (e.g. `wss://stvor-cloud-relay.railway.app`)
-
-### Smart Contract (Sepolia testnet — free)
-
-1. Get free Sepolia ETH: https://sepoliafaucet.com
-2. Get free RPC: https://alchemy.com (free tier)
-3. Set in `.env`:
-   ```
-   SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
-   DEPLOYER_PRIVATE_KEY=your-private-key
-   ```
-4. Deploy:
-   ```bash
-   cd contracts && npm run deploy:sepolia
-   ```
-5. Contract address saved to `src/contracts/addresses.json`
-
-### Connect everything
-
-Set in your `.env`:
-```
-STVOR_RELAY_URL=wss://your-app.railway.app
-STVOR_APP_TOKEN=your-token
-SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
-```
-
-Remove `STVOR_ALLOW_MOCK=true` — production relay is now live.
-
-## Architecture
-
-```
-Client (Alice)                       PQC Relay (mock, in-process)              Provider (Bob)
----------------                      -------------------------                 ---------------
-  createJob()  ── lock funds ──▶  ERC-8183 Ledger (hashes only)  ──▶  submit deliverable hash
-       │                                     ▲                                      │
-       │ send encrypted prompt              │ receive attestations                    │
-       └─▶ encrypt via HybridPQCTransport ─▶ relay ──▶ decrypt ──▶ SecurityGuard ──▶ execute
-           @stvor/web3
-           P-256 X3DH + ML-KEM-768
-           Double Ratchet (Signal Protocol)
-           AES-256-GCM
-```
-
-```
-src/
-├── core/
-│   ├── security.ts                # SecurityGuard prompt-injection filter
-│   ├── types.ts                   # ERC-8183 state types
-│   └── runtime.ts                 # Runtime wiring
-├── plugins/
-│   └── agent-commerce/
-│       ├── elizaos/               # 4 actions, 1 provider, 2 evaluators
-│       ├── state-machine.ts       # OPEN → FUNDED → SUBMITTED → COMPLETE/REFUND
-│       ├── lifecycle.ts           # ERC-8183 event bridge
-│       └── index.ts               # AgentCommercePlugin + MemoryJobStore
-├── transport/
-│   ├── pqc.ts                     # HybridPQCTransport + PayloadHasher
-│   └── mock-relay.ts              # In-process relay for demo/tests
-├── relay/
-│   └── server.ts                  # Standalone Railway WebSocket relay
-└── demo.ts                        # Cinematic Hermes hackathon story
-```
-
-## Cryptography
-
-Powered by [`@stvor/web3`](https://www.npmjs.com/package/@stvor/web3) —
-the team's own Rust/WASM post-quantum SDK (zero npm runtime dependencies).
-
-| Layer | Algorithm | Verification |
-|-------|-----------|-------------|
-| Key exchange | P-256 X3DH + ML-KEM-768 | 53 NIST ACVTS vectors |
-| Sessions | Double Ratchet (Signal Protocol) | Rust/WASM core |
-| Symmetric | AES-256-GCM | NIST SP 800-38D |
-| Hashing | SHA-256 (Node.js crypto) | Built-in |
-
-Hybrid secret: `HKDF-SHA256(P-256_secret ‖ ML-KEM_secret, "STVOR-HYBRID-v1")`
-Breaking encryption requires breaking P-256 AND ML-KEM-768 simultaneously.
-
-## ElizaOS integration
-
-Install the package and add the plugin to an ElizaOS character:
+Install the plugin package in your ElizaOS agent:
 
 ```json
 {
   "dependencies": {
-    "@elizaos/plugin-agent-commerce": "github:stvor-hq/cloud"
+    "@elizaos/plugin-agent-commerce": "github:stvor-hq/ai-security#packages/plugin-agent-commerce"
   }
 }
 ```
+
+Register the plugin in the character config:
 
 ```json
 {
-  "name": "StvorAgent",
+  "name": "SecureCommerceAgent",
   "plugins": ["@elizaos/plugin-agent-commerce"],
   "settings": {
-    "STVOR_RELAY_URL": "http://localhost:4444",
-    "STVOR_ALLOW_MOCK": "true"
+    "STVOR_RELAY_URL": "wss://cloud-production-75c5.up.railway.app",
+    "STVOR_APP_TOKEN": "your-railway-token",
+    "STVOR_STRICT_MODE": "true",
+    "STVOR_ALLOW_MOCK": "false"
   }
 }
 ```
 
-### Environment Variables
+The plugin exposes:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `STVOR_RELAY_URL` | Production relay URL (wss://) | Required in production |
-| `STVOR_APP_TOKEN` | Authentication token for relay | Empty for open relay |
-| `STVOR_AGENT_ID` | Agent identifier registered with relay | Auto-generated by settings |
-| `STVOR_ALLOW_MOCK` | Explicitly allow mock relay when `STVOR_RELAY_URL` is not configured | Must be `'true'` to use mock |
-| `STVOR_KEY_PASSWORD` | Password for encrypting stored keypair | Auto-generated if not set (see below) |
-| `STVOR_STRICT_MODE` | Reject unencrypted messages in strict mode | `false` |
+- `CREATE_SECURE_JOB`
+- `FUND_SECURE_JOB`
+- `SUBMIT_DELIVERABLE`
+- `JOB_STATUS`
+- `SECURITY_GUARD`
+- `COMMERCE_TRACKER`
+- `COMMERCE_CONTEXT`
 
-### KeyStore Password Management
-
-If `STVOR_KEY_PASSWORD` is not set in the environment:
-
-1. A cryptographically strong random password (32 bytes) is generated using `crypto.randomBytes(32).toString('hex')`.
-2. The password is stored in `.stvor_key_pass` in the project root with mode `0600` (owner read/write only).
-3. On subsequent starts, the password is read from `.stvor_key_pass` to decrypt existing keys.
-
-**For production deployments, always set `STVOR_KEY_PASSWORD` explicitly.** Never commit `.stvor_key_pass` to version control (it's already in `.gitignore`).
-
-The plugin exports `agentCommercePlugin` with 4 actions, 1 provider, and 2 evaluators (SECURITY_GUARD and COMMERCE_TRACKER). A ready character file is included at `characters/stvor-agent.character.json`.
-
-## Test results
+## Plugin package structure
 
 ```text
-bun test tests/crypto.test.ts                    8 passed
-bun test tests/commerce-flow.test.ts            12 passed
-bun test tests/elizaos-plugin.test.ts            7 passed
-bun test tests/key-store.test.ts                 6 passed
-bun test tests/performance.test.ts               6 passed
-bun test tests/agent-commerce-evaluator.test.ts  4 passed
-bun test tests/agent-identity.test.ts            3 passed
-bun test tests/mcp.test.ts                       4 passed
-bun test tests/reputation.test.ts                7 passed
-bun test tests/x402.test.ts                      7 passed
-bun test tests/security.test.ts                  7 passed
-bun test tests/audit-log.test.ts                 3 passed
-bun test tests/memory.test.ts                    3 passed
-bun test tests/relay.test.ts                     7 passed
-─────────────────────────────────────────────────
-Total                                           85 passed
+packages/plugin-agent-commerce/
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── actions.ts
+    ├── evaluators.ts
+    ├── index.ts
+    ├── provider.ts
+    └── types.ts
 ```
 
-## Roadmap
+The package re-exports the audited commerce plugin logic from `src/plugins/agent-commerce` while keeping the ElizaOS-facing surface area in standard package form. Existing logic is preserved and not deleted.
 
-- [ ] On-chain reputation oracle (Solana)
-- [ ] Persistent storage (SQLite/PGLite)
+## PQC transport
 
+Stvor AI Security uses a hybrid post-quantum channel:
+
+| Layer | Algorithm | Purpose |
+|---|---|---|
+| Classical identity | P-256 X3DH | Agent identity key agreement |
+| KEM | ML-KEM-768 | Post-quantum encapsulation |
+| Session | Double Ratchet | Forward secrecy and post-compromise security |
+| Payload | AES-256-GCM | Authenticated encryption |
+| Ledger | SHA-256 | Payload hash attestation only |
+
+Plaintext prompts, API keys, deliverables, and evaluation notes never cross the relay. The relay receives only encrypted envelopes and routing metadata.
+
+## ERC-8183 compliance
+
+The commerce state machine implements the ERC-8183 agent-to-agent escrow flow:
+
+```text
+OPEN → FUNDED → SUBMITTED → COMPLETE
+                 ↘ REFUND
+                 ↘ ABORTED
+```
+
+Only hashes and state transitions are recorded in the ledger. The sensitive payload remains in the PQC transport layer.
+
+## Tamper-evident audit logging
+
+`src/core/audit-log.ts` writes hash-chained audit entries:
+
+```text
+hash_i = SHA256(timestamp, event, agentId, jobId, details, prevHash)
+```
+
+Each entry points to the previous hash, making historical tampering detectable during verification.
+
+## Stripe Skills integration
+
+The project includes an x402-style bridge for Stripe Skills workflows:
+
+- `src/x402/index.ts` generates and verifies `X-Payment` headers.
+- Payment-required responses can be bridged into Stripe link-cli flows.
+- The bridge keeps payment negotiation separate from encrypted payload transport.
+
+This is intentionally protocol-level: the plugin validates payment metadata but does not expose plaintext work products.
+
+## SecurityGuard strict mode
+
+Set `STVOR_STRICT_MODE=true` to enforce PQC transport at the ElizaOS evaluator boundary.
+
+Strict mode rejects messages unless they include:
+
+```json
+{
+  "encrypted": true,
+  "pqcEncrypted": true,
+  "encryption": "ML-KEM-768 + Double Ratchet + AES-256-GCM"
+}
+```
+
+Messages that are plaintext, missing encryption metadata, or only classically encrypted are blocked.
+
+## Secure Relay deployment
+
+The standalone relay is ready for Railway free-tier deployment.
+
+```bash
+bun start:relay
+curl http://localhost:4444/health
+```
+
+Railway files:
+
+- `railway.json`
+- `nixpacks.toml`
+- `.railwayignore`
+
+Expected health response:
+
+```json
+{"status":"ok","connections":0,"totalMessages":0,"uptimeSeconds":1,"version":"1.0.0"}
+```
+
+## Development
+
+```bash
+bun install
+bun test
+bun run type-check
+bun --cwd packages/plugin-agent-commerce build
+```
+
+## Security Disclaimer
+
+Stvor AI Security is a security layer for agent commerce, not legal, financial, or investment advice. Do not use mock escrow or testnet contracts for real funds. Review relay tokens, private keys, and production environment variables before deploying. Strict mode should remain enabled for production agents that handle secrets, credentials, paid work, or regulated data.
+
+## PR Summary
+
+This PR rebrands the project from Stvor Cloud to Stvor AI Security, adds an ElizaOS-standard `@elizaos/plugin-agent-commerce` package, strengthens strict-mode PQC enforcement, preserves existing ERC-8183 and transport logic, and documents deployment, security assumptions, and Stripe Skills integration for the Nous Research / NVIDIA / Stripe Hackathon submission.

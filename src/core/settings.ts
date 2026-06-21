@@ -48,7 +48,7 @@ export function validateSettings(settings: INodeSettings): void {
  * Pretty-print settings for CLI output.
  */
 export function printSettings(settings: INodeSettings): void {
-  console.log('┌─ Stvor Cloud Settings');
+  console.log('┌─ Stvor AI Security Settings');
   console.log(`├─ Mode: ${settings.mode}`);
   console.log(`├─ Agent ID: ${settings.agentId}`);
   console.log(`├─ Port: ${settings.port}`);

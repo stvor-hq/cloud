@@ -122,7 +122,7 @@ GET    /api/transport/session/:id   — Crypto session info
 ## 📊 File Structure
 
 ```
-stvor-cloud/
+stvor-ai-security/
 ├── src/
 │   ├── index.ts (UPDATED)              # Main entry with transport init
 │   ├── core/
@@ -157,7 +157,7 @@ Total: 13 TypeScript files, 3 config files, 2 docs, 1 test suite
 
 ### Install & Setup
 ```bash
-cd stvor-cloud
+cd stvor-ai-security
 bash install.sh
 
 # Or manual:

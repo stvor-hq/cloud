@@ -1,5 +1,5 @@
 // src/core/audit-log.ts
-// Tamper-evident audit logging for Stvor Cloud operations.
+// Tamper-evident audit logging for Stvor AI Security operations.
 
 import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'fs';
 import { createHash } from 'crypto';

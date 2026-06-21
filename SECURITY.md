@@ -1,6 +1,6 @@
-# Security Overview — Stvor Cloud
+# Security Overview — Stvor AI Security
 
-This document summarizes the security hardening and risk controls applied to Stvor Cloud.
+This document summarizes the security hardening and risk controls applied to Stvor AI Security.
 
 ## Key Hardening Areas
 

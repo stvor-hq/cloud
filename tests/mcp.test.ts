@@ -3,7 +3,7 @@ import { MCP_TOOLS, MCP_SERVER_INFO } from '../src/mcp/server';
 
 describe('MCP server', () => {
   it('has correct server info', () => {
-    expect(MCP_SERVER_INFO.name).toBe('stvor-cloud');
+    expect(MCP_SERVER_INFO.name).toBe('stvor-ai-security');
     expect(MCP_SERVER_INFO.version).toBeDefined();
     expect(MCP_SERVER_INFO.description).toContain('ML-KEM-768');
   });

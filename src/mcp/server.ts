@@ -1,5 +1,5 @@
 // src/mcp/server.ts
-// Model Context Protocol server for Stvor Cloud.
+// Model Context Protocol server for Stvor AI Security.
 // Exposes ERC-8183 commerce operations as MCP tools.
 
 export const MCP_TOOLS = [
@@ -60,7 +60,7 @@ export const MCP_TOOLS = [
 ];
 
 export const MCP_SERVER_INFO = {
-  name: 'stvor-cloud',
+  name: 'stvor-ai-security',
   version: '1.0.0',
   description: 'Post-quantum ERC-8183 agentic commerce — ML-KEM-768 + Double Ratchet + on-chain escrow',
 };

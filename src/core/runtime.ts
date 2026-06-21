@@ -15,7 +15,7 @@ import type { IAgentRuntime, INodeSettings, IBootPhase } from './types';
 import { RuntimeState } from './types';
 
 /**
- * AgentRuntime: Central orchestrator for Stvor Cloud.
+ * AgentRuntime: Central orchestrator for Stvor AI Security.
  * 
  * Implements deferred hydration — heavy transport layers load only when needed,
  * keeping cold-start time under 50ms.

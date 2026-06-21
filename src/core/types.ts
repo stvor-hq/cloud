@@ -1,5 +1,5 @@
 /**
- * @file Shared type definitions for Stvor Cloud
+ * @file Shared type definitions for Stvor AI Security
  * 
  * Core architectural types used across the agent node runtime.
  * Follows strict TypeScript conventions for Web3 infrastructure.

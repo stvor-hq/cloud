@@ -97,7 +97,7 @@ class TestAgent {
 /**
  * Main test suite: Full agentic commerce lifecycle.
  */
-describe('Stvor Cloud E2E Commerce Flow', () => {
+describe('Stvor AI Security E2E Commerce Flow', () => {
   let aliceTransport: StvorTransportManager;
   let bobTransport: StvorTransportManager;
   let charlieTransport: StvorTransportManager;
@@ -115,7 +115,7 @@ describe('Stvor Cloud E2E Commerce Flow', () => {
     console.log(
       '\n╔═══════════════════════════════════════════════════════════╗',
     );
-    console.log('║  E2E Commerce Flow Test - Stvor Cloud                  ║');
+    console.log('║  E2E Commerce Flow Test - Stvor AI Security                  ║');
     console.log(
       '╚═══════════════════════════════════════════════════════════╝\n',
     );
