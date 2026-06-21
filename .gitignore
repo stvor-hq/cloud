@@ -10,6 +10,7 @@ build/
 .env
 .env.local
 .env.*.local
+.env.production
 
 # Runtime
 *.db
@@ -42,3 +43,4 @@ coverage/
 
 # Misc
 .turbo/
+.env.production
