@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { verifyChallenge } from './agent-identity';
+import { verifyChallenge, deriveAgentIdFromPublicKey } from './agent-identity';
 import type { RelayMessage } from './transport/relay';
 
 interface RelaySocketData {
@@ -80,8 +80,13 @@ function handleRelayMessage(ws: RelaySocket, raw: RelayRawMessage): void {
       pendingChallenges.delete(challenge);
 
       if (valid) {
-        registerAgent(ws, pending.agentId);
-        console.log(`[Relay] agent ${pending.agentId} authenticated via challenge-response`);
+        const derivedAgentId = deriveAgentIdFromPublicKey(publicKey);
+        if (derivedAgentId !== pending.agentId) {
+          closeSocket(ws, 1008, 'Agent ID does not match public key');
+          return;
+        }
+        registerAgent(ws, derivedAgentId);
+        console.log(`[Relay] agent ${derivedAgentId} authenticated via challenge-response`);
       } else {
         closeSocket(ws, 1008, 'Challenge verification failed');
       }
@@ -125,8 +130,9 @@ const server = Bun.serve({
       });
     }
 
-    const token = url.searchParams.get('token') ?? '';
     const agentId = url.searchParams.get('agentId') ?? '';
+    const authHeader = req.headers.get('authorization') ?? '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     const expectedToken = getExpectedToken();
     if (expectedToken && token !== expectedToken) {
       return new Response('Invalid relay token', { status: 403 });
@@ -154,9 +160,9 @@ const server = Bun.serve({
         const expiresAt = Date.now() + 5 * 60 * 1000;
         pendingChallenges.set(challenge, { ws, agentId, expiresAt });
         ws.send(JSON.stringify({ type: 'challenge', challenge, expiresAt }));
-        console.log(`[Relay] client connected token=${token} agentId=${agentId} (awaiting challenge-response)`);
+        console.log(`[Relay] client connected agentId=${agentId} (awaiting challenge-response)`);
       } else {
-        console.log(`[Relay] client connected token=${token} agentId=-`);
+        console.log(`[Relay] client connected (no agentId)`);
       }
     },
     message(ws: RelaySocket, message: string | Buffer<ArrayBuffer>) {

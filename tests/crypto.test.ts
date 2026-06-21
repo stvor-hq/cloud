@@ -97,10 +97,41 @@ describe('PayloadHasher', () => {
     expect(PayloadHasher.hashPayload(p)).toBe(PayloadHasher.hashPayload(p));
   });
 
+  it('produces the same hash regardless of key order', () => {
+    const reordered1 = { task: 'ml pipeline', jobId: 'job-42' };
+    const reordered2 = { jobId: 'job-42', task: 'ml pipeline' };
+    const canonical = { jobId: 'job-42', task: 'ml pipeline' };
+    const h1 = PayloadHasher.hashPayload(reordered1);
+    const h2 = PayloadHasher.hashPayload(reordered2);
+    const h3 = PayloadHasher.hashPayload(canonical);
+    expect(h1).toBe(h2);
+    expect(h1).toBe(h3);
+  });
+
   it('verifies correctly and rejects tampered payload', () => {
     const p = { jobId: 'job-001' };
     const h = PayloadHasher.hashPayload(p);
     expect(PayloadHasher.verifyHash(p, h)).toBe(true);
     expect(PayloadHasher.verifyHash({ jobId: 'job-002' }, h)).toBe(false);
+  });
+
+  it('signs payload and verifies signature', () => {
+    const payload = { jobId: 'job-signed-test', task: 'Secure task' };
+    const alice = HybridPQCTransport.generateKeyPair();
+    
+    const signed = PayloadHasher.signPayload(payload, alice);
+    expect(typeof signed.hash).toBe('string');
+    expect(typeof signed.signature).toBe('string');
+    expect(signed.hash.length).toBe(64); // SHA-256 hex length
+    
+    // Verify the signature with correct public key
+    expect(
+      PayloadHasher.verifySignature(payload, signed.hash, signed.signature, alice.ik.public_key),
+    ).toBe(true);
+    
+    // Verify fails with tampered payload
+    expect(
+      PayloadHasher.verifySignature({ jobId: 'job-fake' }, signed.hash, signed.signature, alice.ik.public_key),
+    ).toBe(false);
   });
 });

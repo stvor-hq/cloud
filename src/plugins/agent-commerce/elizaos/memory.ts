@@ -49,7 +49,20 @@ export async function persistMemory(
   memory: Memory
 ): Promise<void> {
   try {
-    await runtime.getMemoryManager().createMemory(memory);
+    const rt = runtime as unknown as Record<string, unknown>;
+    const messageManager = rt.messageManager as { createMemory?: (m: Memory) => Promise<unknown> } | undefined;
+    const databaseAdapter = rt.databaseAdapter as { createMemory?: (m: Memory) => Promise<unknown> } | undefined;
+    const runtimeAny = rt as { createMemory?: (m: Memory, table?: string, unique?: boolean) => Promise<unknown> };
+
+    if (messageManager?.createMemory) {
+      await messageManager.createMemory(memory);
+    } else if (databaseAdapter?.createMemory) {
+      await databaseAdapter.createMemory(memory);
+    } else if (runtimeAny.createMemory) {
+      await runtimeAny.createMemory(memory, 'messages', false);
+    } else {
+      throw new Error('No compatible memory creation method found on runtime');
+    }
   } catch {
     await new HybridMemoryManager(runtime.agentId).store(memory);
   }

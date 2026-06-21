@@ -192,15 +192,14 @@ contract AgenticCommerce is Initializable, AccessControlUpgradeable, ReentrancyG
         if (job.status != JobStatus.Open) revert WrongStatus();
         if (msg.sender != job.client) revert Unauthorized();
         if (job.provider == address(0)) revert ProviderNotSet();
+        if (job.budget == 0) revert ZeroBudget();
         if (block.timestamp >= job.expiredAt) revert WrongStatus();
 
         bytes memory data = abi.encode(msg.sender, optParams);
         _beforeHook(job.hook, jobId, msg.sig, data);
 
         job.status = JobStatus.Funded;
-        if (job.budget > 0) {
-            paymentToken.safeTransferFrom(job.client, address(this), job.budget);
-        }
+        paymentToken.safeTransferFrom(job.client, address(this), job.budget);
         emit JobFunded(jobId, job.client, job.budget);
 
         _afterHook(job.hook, jobId, msg.sig, data);

@@ -83,6 +83,9 @@ export class ERC8183StateMachine {
     if (job.clientAgent !== clientAgent) {
       throw new Error('Only the job creator can fund this job');
     }
+    if (fundAmount <= 0n) {
+      throw new Error('Fund amount must be greater than 0');
+    }
 
     const canFund = await ctx.reputationGate.canFundJob(clientAgent, fundAmount);
     if (!canFund) {

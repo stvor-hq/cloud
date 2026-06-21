@@ -270,6 +270,23 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
     expect(fundedJob.fundedAmount).toBe(BigInt(7_500_000));
   });
 
+  it('should reject funding with zero amount', async () => {
+    const job = await alice.commerce.createJob(
+      'alice_client',
+      'bob_provider',
+      'Test zero funding rejection',
+      BigInt(5_000_000),
+    );
+
+    await expect(
+      alice.commerce.fundJob(
+        job.jobId,
+        'alice_client',
+        BigInt(0),
+      ),
+    ).rejects.toThrow('Fund amount must be greater than 0');
+  });
+
   it('should send encrypted task specification to provider', async () => {
     console.log('\n────────────────────────────────────────');
     console.log('Step 3: Secure Payload Delivery (Encrypted)');

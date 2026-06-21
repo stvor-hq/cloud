@@ -40,9 +40,12 @@ export class WebSocketRelay implements IRelay {
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const params = new URLSearchParams({ token: this.token });
+      const params = new URLSearchParams();
       if (this.agentId) params.set('agentId', this.agentId);
-      this.ws = new WebSocket(`${this.url}?${params.toString()}`);
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${this.token}`,
+      };
+      this.ws = new WebSocket(`${this.url}?${params.toString()}`, { headers });
       this.ws.onopen = () => {
         console.log(`[WebSocketRelay] Connected to ${this.url}`);
         this.ws?.send(JSON.stringify({

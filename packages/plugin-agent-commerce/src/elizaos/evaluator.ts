@@ -45,6 +45,17 @@ export const securityEvaluator = {
     const sender = stvorMessage.from ?? 'unknown';
 
     if (isPqcEncrypted) {
+      try {
+        SecurityGuard.assertPayloadSafe(stvorMessage);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (getStrictMode(runtime)) {
+          throw new Error(
+            `[SECURITY-GUARD] PQC-encrypted message blocked: ${reason}`,
+          );
+        }
+        console.warn(`[Stvor AI Security] PQC message with security issue from ${sender}: ${reason}`);
+      }
       return;
     }
 

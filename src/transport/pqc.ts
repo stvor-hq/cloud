@@ -5,9 +5,11 @@ import {
   wasm_mlkem_keygen,
   wasm_hybrid_session_initiate,
   wasm_hybrid_session_respond,
+  wasm_ec_sign,
+  wasm_ec_verify,
 } from '@stvor/web3/wasm';
 import { readFileSync } from 'fs';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { resolve } from 'path';
 import type { IStvorTransport, IStvorMessage, IStvorSession } from './interfaces';
 import { KeyStore } from './key-store';
@@ -58,6 +60,13 @@ export class PqcEncryptionError extends Error {
   ) {
     super(message);
     this.name = 'PqcEncryptionError';
+  }
+}
+
+export class NotImplementedError extends Error {
+  constructor(method: string) {
+    super(`${method} is not yet implemented. Use onMessage() for event-driven message handling.`);
+    this.name = 'NotImplementedError';
   }
 }
 
@@ -174,14 +183,72 @@ export class PayloadHasher {
     return PayloadHasher.verifyHash(payload, storedHash);
   }
 
+  private static stableStringify(value: unknown): string {
+    const seen = new WeakSet();
+    const helper = (val: unknown): string => {
+      if (val === null || typeof val !== 'object') {
+        return JSON.stringify(val);
+      }
+      if (seen.has(val)) {
+        throw new Error('Circular reference detected in payload');
+      }
+      seen.add(val);
+      if (Array.isArray(val)) {
+        return '[' + val.map(helper).join(',') + ']';
+      }
+      const keys = Object.keys(val as Record<string, unknown>).sort();
+      const pairs = keys.map(k => JSON.stringify(k) + ': ' + helper((val as Record<string, unknown>)[k]));
+      return '{' + pairs.join(',') + '}';
+    };
+    return helper(value);
+  }
+
   static hashPayload(payload: unknown): string {
     return createHash('sha256')
-      .update(JSON.stringify(payload))
+      .update(PayloadHasher.stableStringify(payload))
       .digest('hex');
   }
 
   static verifyHash(payload: unknown, storedHash: string): boolean {
-    return PayloadHasher.hashPayload(payload) === storedHash;
+    const computed = Buffer.from(PayloadHasher.hashPayload(payload));
+    const expected = Buffer.from(storedHash);
+    if (computed.length !== expected.length) return false;
+    return timingSafeEqual(computed, expected);
+  }
+
+  static signPayload(
+    payload: unknown,
+    signerKeyPair: HybridKeyPair,
+  ): { hash: string; signature: string } {
+    ensureWasm();
+    const hash = PayloadHasher.hashPayload(payload);
+    const signature = wasm_ec_sign(
+      new TextEncoder().encode(hash),
+      signerKeyPair.ik,
+    );
+    return { hash, signature };
+  }
+
+  static verifySignature(
+    payload: unknown,
+    hash: string,
+    signature: string,
+    signerPublicKey: string,
+  ): boolean {
+    ensureWasm();
+    const computedHash = PayloadHasher.hashPayload(payload);
+
+    const hashBytes = Buffer.from(computedHash, 'hex');
+    const storedHashBytes = Buffer.from(hash, 'hex');
+    
+    if (hashBytes.length !== storedHashBytes.length) return false;
+    if (!timingSafeEqual(hashBytes, storedHashBytes)) return false;
+    
+    return wasm_ec_verify(
+      new TextEncoder().encode(hash),
+      signature,
+      signerPublicKey,
+    );
   }
 
   hashPayload(payload: unknown): string {
@@ -192,7 +259,6 @@ export class PayloadHasher {
     return PayloadHasher.verifyHash(payload, storedHash);
   }
 }
-
 // ─── StvorTransportManager ───────────────────────────────────────────────────
 
 export class StvorTransportManager implements IStvorTransport {
@@ -486,7 +552,7 @@ export class StvorTransportManager implements IStvorTransport {
   }
 
   async receiveSecureMessage(_timeoutMs?: number): Promise<IStvorMessage | null> {
-    return null;
+    throw new NotImplementedError('receiveSecureMessage');
   }
 
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void {
@@ -494,7 +560,7 @@ export class StvorTransportManager implements IStvorTransport {
   }
 
   async getSessionStatus(_agentId: string): Promise<IStvorSession | null> {
-    return null;
+    throw new NotImplementedError('getSessionStatus');
   }
 
   async getStatus(): Promise<{
