@@ -17,6 +17,11 @@ const LLM_INJECTION_PATTERNS = [
   /disable (?:security|guard|validation)/i,
   /run without restrictions/i,
   /override.*policy/i,
+  /\u200b|\u200c|\u200d|\ufeff/i,
+  /base64.*decode|decode.*base64/i,
+  /eval\s*\(|exec\s*\(/i,
+  /password|secret|token|api.key|private.key/i,
+  /__import__|subprocess|os\.system|child_process/i,
 ];
 
 const RATE_LIMIT_WINDOW_MS = 60_000;

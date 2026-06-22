@@ -288,6 +288,7 @@ export class StvorTransportManager implements IStvorTransport {
   private sessionCache: Map<string, IStvorSession> = new Map();
   private peerPublicKeys: Map<string, HybridKeyPair> = new Map();
   private isMockRelay = false;
+  private connected = false;
   private static readonly MAX_BUFFER_PER_AGENT = 128;
   private static readonly MAX_RETRIES = 3;
   private static readonly BASE_RETRY_DELAY_MS = 1000;
@@ -397,6 +398,7 @@ export class StvorTransportManager implements IStvorTransport {
           '[StvorTransport] Using in-process mock relay. Set STVOR_RELAY_URL for production.',
         );
         await this.useMockRelayClient();
+        this.connected = true;
         return;
       }
 
@@ -404,6 +406,7 @@ export class StvorTransportManager implements IStvorTransport {
       await relay.connect();
       this.relay = relay;
       this.isMockRelay = false;
+      this.connected = true;
       this.client = {
         send: async (message: IStvorMessage) => {
           await relay.send(message.to, {
@@ -426,12 +429,13 @@ export class StvorTransportManager implements IStvorTransport {
           `Transport connect failed: ${error instanceof Error ? error.message : String(error)}. Set STVOR_ALLOW_MOCK=true to allow mock fallback.`,
         );
       }
-      console.warn(
-        `[StvorTransport] Transport connect failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      await this.useMockRelayClient();
-    }
-  }
+console.warn(
+         `[StvorTransport] Transport connect failed: ${error instanceof Error ? error.message : String(error)}`,
+       );
+       await this.useMockRelayClient();
+       this.connected = true;
+     }
+   }
 
   private handleRelayMessage(message: RelayMessage | IStvorMessage): void {
     let parsed: IStvorMessage;
@@ -617,7 +621,7 @@ export class StvorTransportManager implements IStvorTransport {
     messagesSent: number;
   }> {
     return {
-      connected: this.client !== null,
+      connected: this.connected,
       agentId: this.agentId,
       relayUrl: this.relayUrl,
       activeSessions: this.sessionCache.size,

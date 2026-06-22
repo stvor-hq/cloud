@@ -1,23 +1,23 @@
-# @stvor/plugin-agent-commerce
+# @elizaos/plugin-agent-commerce
 
 Quantum-resistant secure agent commerce for ElizaOS: ERC-8183 escrow, ML-KEM-768 transport, tamper-evident audit logs, and prompt-injection protection in one plugin.
 
 ## Install
 
 ```bash
-npm install @stvor/plugin-agent-commerce
+npm install @elizaos/plugin-agent-commerce
 # or
-bun add @stvor/plugin-agent-commerce
+bun add @elizaos/plugin-agent-commerce
 ```
 
 ## Register Plugin
 
 ```typescript
-import { agentCommercePlugin } from '@stvor/plugin-agent-commerce';
+import { agentCommercePlugin } from '@elizaos/plugin-agent-commerce';
 
 const character = {
   name: 'SecureCommerceAgent',
-  plugins: ['@stvor/plugin-agent-commerce'],
+  plugins: ['@elizaos/plugin-agent-commerce'],
   settings: {
     STVOR_RELAY_URL: 'wss://<your-railway-url>',
     STVOR_APP_TOKEN: '<your-railway-token>',

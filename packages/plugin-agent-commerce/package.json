@@ -1,5 +1,5 @@
 {
-  "name": "@stvor/plugin-agent-commerce",
+  "name": "@elizaos/plugin-agent-commerce",
   "version": "0.1.0",
   "description": "Quantum-Resistant Secure Agent Commerce & Prompt Injection Protection (Stvor AI Security)",
   "type": "module",

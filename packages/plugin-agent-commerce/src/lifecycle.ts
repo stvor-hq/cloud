@@ -1,9 +1,8 @@
 import type { IErc8183Job, ICommerceContext } from './types';
-import type { StvorTransportManager } from '../../../src/transport/pqc';
-import { PayloadHasher } from '../../../src/transport/pqc';
-import type { IStvorMessage } from '../../../src/transport/interfaces';
+import type { IStvorTransport, IStvorMessage } from './lib/pqc';
+import { PayloadHasher } from './lib/pqc';
+import { SecurityGuard } from './lib/security';
 import { ERC8183StateMachine } from './state-machine';
-import { SecurityGuard } from '../../../src/core/security';
 
 export interface ICommerceEventListener {
   onJobCreated(job: IErc8183Job): Promise<void>;
@@ -13,14 +12,14 @@ export interface ICommerceEventListener {
 }
 
 export class CommerceTransportBridge implements ICommerceEventListener {
-  private readonly transport: StvorTransportManager;
+  private readonly transport: IStvorTransport;
   private readonly context: ICommerceContext;
   private readonly hasher: PayloadHasher;
   private readonly peerTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private readonly responseWindowMs: number;
 
   constructor(
-    transport: StvorTransportManager,
+    transport: IStvorTransport,
     context: ICommerceContext,
     responseWindowMs = 15000,
   ) {
@@ -176,7 +175,7 @@ export class CommerceTransportBridge implements ICommerceEventListener {
 }
 
 export function createCommerceTransportBridge(
-  transport: StvorTransportManager,
+  transport: IStvorTransport,
   context: ICommerceContext,
   responseWindowMs = 15000,
 ): ICommerceEventListener {

@@ -10,6 +10,7 @@ import type {
   IPqcReputationGateHook,
   EvaluatorFunction,
 } from './types';
+import type { StvorTransportManager } from './lib/pqc';
 
 export type {
   ERC8183JobState,
@@ -58,17 +59,17 @@ export interface ICommercePlugin {
   getJobState(jobId: string): Promise<ERC8183JobState | null>;
   listJobs(agentId: string): Promise<IErc8183Job[]>;
   getContext(): ICommerceContext;
-  getTransport(): import('../../../src/transport/pqc').StvorTransportManager | null;
+  getTransport(): StvorTransportManager | null;
 }
 
 export class AgentCommercePlugin implements ICommercePlugin {
   private readonly context: ICommerceContext;
-  private readonly transport: import('../../../src/transport/pqc').StvorTransportManager | null;
+  private readonly transport: StvorTransportManager | null;
   private readonly eventListeners: import('./lifecycle').ICommerceEventListener[] = [];
 
   constructor(
     runtime: unknown,
-    transport?: import('../../../src/transport/pqc').StvorTransportManager,
+    transport?: StvorTransportManager,
     context?: Partial<ICommerceContext>,
   ) {
     this.transport = transport ?? null;
@@ -136,14 +137,14 @@ export class AgentCommercePlugin implements ICommercePlugin {
     return this.context;
   }
 
-  getTransport(): import('../../../src/transport/pqc').StvorTransportManager | null {
+  getTransport(): StvorTransportManager | null {
     return this.transport;
   }
 }
 
 export function createCommercePlugin(
   runtime: unknown,
-  transport?: import('../../../src/transport/pqc').StvorTransportManager,
+  transport?: StvorTransportManager,
   context?: Partial<ICommerceContext>,
 ): AgentCommercePlugin {
   return new AgentCommercePlugin(runtime, transport, context);

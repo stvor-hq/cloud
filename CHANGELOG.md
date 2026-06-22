@@ -1,3 +1,18 @@
+## [Plugin Autonomy] - Self-Contained Plugin for elizaOS PR
+
+### Changed
+- **Plugin imports localized**: All imports in `packages/plugin-agent-commerce/src/` now reference local files (`./lib/pqc`, `./lib/security`, etc.) instead of cross-package paths (`../../../src/`).
+- **Bundle-ready pqc.ts**: Copied and simplified `src/transport/pqc.ts` and `src/core/security.ts` into `packages/plugin-agent-commerce/src/lib/` with no external project dependencies.
+- **Fixed TypeScript build**: Resolved import error in `lifecycle.ts` where `PayloadHasher` was incorrectly imported as a type.
+
+### Verified
+- `bun install` inside plugin directory succeeds
+- `bun run build` compiles without errors
+- `bun test` passes 96 tests
+- `bun run type-check` exits clean
+- `bun run lint` exits clean (warnings only)
+- `bun run demo:full` executes successfully
+
 ## [Unreleased] - Release Preparation: Secrets & Configuration Hardening
 
 ### Critical Security Fixes
@@ -155,13 +170,13 @@ All notable changes to this project will be documented in this file.
   - `true`: Rejects unencrypted messages with an error
   - `false` (default): Logs a warning but allows the message to proceed
 - **SecurityGuard.evaluate()**: New method that returns `SecurityEvaluationResult` with `action: 'BLOCK' | 'ALLOW' | 'WARN'` and `reason` for PQC compliance checking. Useful for testing and programmatic validation.
-- **Plugin Package**: Created self-contained `@stvor/plugin-agent-commerce` in `packages/plugin-agent-commerce/` with all dependencies bundled.
+- **Plugin Package**: Created self-contained `@elizaos/plugin-agent-commerce` in `packages/plugin-agent-commerce/` with all dependencies bundled.
 
 ### Changed
 
 - **Plugin Structure**: Moved `actions.ts`, `provider.ts`, `evaluator.ts`, and `memory.ts` into `packages/plugin-agent-commerce/src/elizaos/` for ElizaOS compatibility.
 - **Dependency Isolation**: Copied `pqc.ts`, `key-store.ts`, `security.ts`, and `audit-log.ts` utilities into `packages/plugin-agent-commerce/src/lib/` for autonomous npm installation.
-- **Package.json**: Updated `main` to `src/index.ts`, renamed package to `@stvor/plugin-agent-commerce`, added `ws` and `@types/ws` dependencies.
+- **Package.json**: Updated `main` to `src/index.ts`, renamed package to `@elizaos/plugin-agent-commerce`, added `ws` and `@types/ws` dependencies.
 - **Environment Variables**: Added `STVOR_ALLOW_MOCK` and `STVOR_STRICT_MODE` to `.env.example`
 - **Documentation**: Added `packages/plugin-agent-commerce/README.md` with Security Model section explaining PQC necessity, SecurityGuard modes, and Railway deployment.
 
