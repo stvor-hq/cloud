@@ -181,8 +181,10 @@ Other:
             if (parts.length < 3) {
               console.log('Usage: evaluate <jobId> <decision>');
             } else {
+              const callerAgent = runtime.settings.agentId;
               const job = await commerce.evaluateJob(
                 parts[1],
+                callerAgent,
                 parts[2].toUpperCase() as 'ACCEPT' | 'REJECT' | 'PARTIAL',
               );
               console.log(`✓ Job evaluated: state=${job.state}`);

@@ -7,21 +7,29 @@
 
 import type { INodeSettings } from './types';
 
+function getRequiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} must be set in production`);
+  return value;
+}
+
 /**
  * Initialize node settings from environment variables with fallbacks.
  * Designed for zero-allocation fast-path when defaults are used.
  */
 export function initializeSettings(): INodeSettings {
+  const production = process.env.NODE_ENV === 'production' || process.env.STVOR_MODE === 'api';
+  
   return {
     mode: (process.env.STVOR_MODE as 'cli' | 'api') || 'cli',
     port: parseInt(process.env.STVOR_PORT || '8080', 10),
     logLevel: (process.env.STVOR_LOG_LEVEL || 'info') as INodeSettings['logLevel'],
     dbPath: process.env.STVOR_DB_PATH || './stvor.db',
     pqcEnabled: process.env.STVOR_PQC_ENABLED !== 'false',
-    agentId: process.env.STVOR_AGENT_ID || `agent-${Date.now()}`,
-    relayUrl: process.env.STVOR_RELAY_URL || 'local',
-    apiKey: process.env.STVOR_API_KEY || 'stvor-demo-key',
-    appToken: process.env.STVOR_APP_TOKEN || 'stvor_dev_test123',
+    agentId: process.env.STVOR_AGENT_ID || (production ? (() => { throw new Error('STVOR_AGENT_ID must be set'); })() : `agent-${Date.now()}`),
+    relayUrl: process.env.STVOR_RELAY_URL || (production ? (() => { throw new Error('STVOR_RELAY_URL must be set'); })() : 'local'),
+    apiKey: process.env.STVOR_API_KEY || (production ? (() => { throw new Error('STVOR_API_KEY must be set'); })() : (() => { throw new Error('STVOR_API_KEY must be set'); })()),
+    appToken: process.env.STVOR_APP_TOKEN || (production ? (() => { throw new Error('STVOR_APP_TOKEN must be set'); })() : (() => { throw new Error('STVOR_APP_TOKEN must be set'); })()),
   };
 }
 

@@ -559,9 +559,10 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
       deliverableHash,
     );
 
-    // Evaluate (as charlie, the evaluator)
-    const evaluatedJob = await charlie.commerce.evaluateJob(
+    // Evaluate (as alice, the client who can evaluate)
+    const evaluatedJob = await alice.commerce.evaluateJob(
       jobId,
+      'alice_client',
       'ACCEPT',
       'Deliverable meets all specifications and quality standards.',
     );
@@ -610,9 +611,10 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
       hasher.hashPayload(badDeliverable),
     );
 
-    // Reject
-    const rejectedJob = await charlie.commerce.evaluateJob(
+    // Reject (as alice, the client who can evaluate)
+    const rejectedJob = await alice.commerce.evaluateJob(
       jobId,
+      'alice_client',
       'REJECT',
       'Deliverable incomplete and does not meet specifications.',
     );
@@ -745,10 +747,11 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
     );
     const submitTime = Date.now() - submitStart;
 
-    // 4. Evaluate
+    // 4. Evaluate (as alice, the client)
     const evalStart = Date.now();
-    await charlie.commerce.evaluateJob(
+    await alice.commerce.evaluateJob(
       job.jobId,
+      'alice_client',
       'ACCEPT',
     );
     const evalTime = Date.now() - evalStart;

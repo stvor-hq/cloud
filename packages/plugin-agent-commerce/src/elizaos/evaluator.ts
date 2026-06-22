@@ -2,6 +2,7 @@ import type { Memory, State } from './types';
 import type { IElizaRuntime } from './types';
 import { persistMemory } from './memory.js';
 import { SecurityGuard } from '../lib/security';
+import type { StvorTransportManager } from '../lib/pqc';
 
 export { SecurityGuard };
 
@@ -23,7 +24,14 @@ const getStrictMode = (runtime?: IElizaRuntime): boolean => {
 };
 
 const isPqcEncryptedContent = (content: SecurityMessageContent): boolean => {
-  return content.pqcEncrypted === true;
+  if (content.pqcEncrypted !== true) return false;
+  return true;
+};
+
+const hasActivePqcSession = (senderId: string, transport: StvorTransportManager | null): boolean => {
+  if (!transport) return false;
+  const session = transport.getSession(senderId);
+  return session?.encryptionActive === true;
 };
 
 export const securityEvaluator = {
@@ -43,8 +51,16 @@ export const securityEvaluator = {
 
     const isPqcEncrypted = isPqcEncryptedContent(stvorMessage);
     const sender = stvorMessage.from ?? 'unknown';
+    const transport = (runtime as { transport?: StvorTransportManager }).transport;
 
     if (isPqcEncrypted) {
+      const hasSession = hasActivePqcSession(sender, transport ?? null);
+      if (!hasSession && getStrictMode(runtime)) {
+        throw new Error(
+          `[SECURITY-GUARD] PQC-encrypted message blocked: sender has no active PQC session. Set up a secure session before sending encrypted messages.`,
+        );
+      }
+
       try {
         SecurityGuard.assertPayloadSafe(stvorMessage);
       } catch (error) {

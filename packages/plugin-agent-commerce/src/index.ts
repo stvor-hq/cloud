@@ -52,6 +52,7 @@ export interface ICommercePlugin {
   submitJob(jobId: string, providerAgent: string, deliverableHash: string): Promise<IErc8183Job>;
   evaluateJob(
     jobId: string,
+    callerAgent: string,
     decision: 'ACCEPT' | 'REJECT' | 'PARTIAL',
     reason?: string,
   ): Promise<IErc8183Job>;
@@ -109,12 +110,14 @@ export class AgentCommercePlugin implements ICommercePlugin {
 
   async evaluateJob(
     jobId: string,
+    callerAgent: string,
     decision: 'ACCEPT' | 'REJECT' | 'PARTIAL',
     reason?: string,
   ): Promise<IErc8183Job> {
     return ERC8183StateMachine.evaluateJob(
       this.context,
       jobId,
+      callerAgent,
       decision as EvaluationDecision,
       reason,
     );

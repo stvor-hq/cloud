@@ -145,32 +145,30 @@ export class CommerceTransportBridge implements ICommerceEventListener {
 
     this.clearPeerTimeout(msg.content.jobId);
 
-    if (msg.content.type === 'job_prompt') {
-      const expectedHash = job.metadata.taskPayloadHash;
-      if (expectedHash) {
-        const computedHash = this.hasher.hashPayload(msg.content.data);
-        if (computedHash !== expectedHash) {
-          await ERC8183StateMachine.abortJob(
-            this.context,
-            job.jobId,
-            `[SECURITY-ALERT] HASH_MISMATCH_ALERT for job ${job.jobId}`,
-          );
-        }
-      }
-    }
+if (msg.content.type === 'job_prompt') {
+       const expectedHash = job.metadata.taskPayloadHash;
+       if (expectedHash) {
+         if (!PayloadHasher.verifyHash(msg.content.data, expectedHash as string)) {
+           await ERC8183StateMachine.abortJob(
+             this.context,
+             job.jobId,
+             `[SECURITY-ALERT] HASH_MISMATCH_ALERT for job ${job.jobId}`,
+           );
+         }
+       }
+     }
 
-    if (msg.content.type === 'job_deliverable') {
-      if (!job.deliverableHash) return;
+     if (msg.content.type === 'job_deliverable') {
+       if (!job.deliverableHash) return;
 
-      const computedHash = this.hasher.hashPayload(msg.content.data);
-      if (computedHash !== job.deliverableHash) {
-        await ERC8183StateMachine.abortJob(
-          this.context,
-          job.jobId,
-          `[SECURITY-ALERT] HASH_MISMATCH_ALERT for job ${job.jobId}`,
-        );
-      }
-    }
+       if (!PayloadHasher.verifyHash(msg.content.data, job.deliverableHash as string)) {
+         await ERC8183StateMachine.abortJob(
+           this.context,
+           job.jobId,
+           `[SECURITY-ALERT] HASH_MISMATCH_ALERT for job ${job.jobId}`,
+         );
+       }
+     }
   }
 }
 

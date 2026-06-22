@@ -20,6 +20,7 @@ export interface IErc8183Job {
   jobId: string;
   clientAgent: string;
   providerAgent: string;
+  evaluatorAgent?: string;
   state: ERC8183JobState;
   taskDescription: string;
   requiredAmount: bigint;

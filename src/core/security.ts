@@ -33,6 +33,12 @@ const LLM_INJECTION_PATTERNS = [
   /__import__|subprocess|os\.system|child_process/i,
 ];
 
+const DANGEROUS_OBJECT_KEYS = [
+  '__proto__',
+  'constructor',
+  'prototype',
+];
+
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
 
@@ -199,6 +205,14 @@ export class SecurityGuard {
 
     if (typeof value === 'object') {
       for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (DANGEROUS_OBJECT_KEYS.includes(key)) {
+          throw new Error(`[SECURITY-ALERT] Dangerous object key detected in ${path}: ${key}`);
+        }
+        if (this.isMaliciousString(key)) {
+          throw new Error(
+            `[SECURITY-ALERT] Malicious injection detected in object key ${path}: ${key}`,
+          );
+        }
         this.inspectValue(child, `${path}.${key}`);
       }
       return;

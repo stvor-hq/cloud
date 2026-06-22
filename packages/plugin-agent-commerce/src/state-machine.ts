@@ -89,6 +89,9 @@ export class ERC8183StateMachine {
     providerAgent: string,
     deliverableHash: string,
   ): Promise<IErc8183Job> {
+    if (!/^[0-9a-f]{64}$/i.test(deliverableHash)) {
+      throw new Error('deliverableHash must be a valid SHA-256 hex string');
+    }
     const job = await ctx.jobStore.get(jobId);
     if (!job) {
       throw new Error(`Job ${jobId} not found`);
@@ -215,6 +218,7 @@ export class ERC8183StateMachine {
   static async evaluateJob(
     ctx: ICommerceContext,
     jobId: string,
+    callerAgent: string,
     decision: EvaluationDecision,
     reason?: string,
   ): Promise<IErc8183Job> {
@@ -224,6 +228,9 @@ export class ERC8183StateMachine {
     }
     if (job.state !== ERC8183JobState.SUBMITTED) {
       throw new Error(`Cannot evaluate job in state ${job.state}. Expected ${ERC8183JobState.SUBMITTED}.`);
+    }
+    if (callerAgent !== job.evaluatorAgent && callerAgent !== job.clientAgent) {
+      throw new Error('Only the evaluator agent or client agent can evaluate this job');
     }
 
     if (decision === EvaluationDecision.ACCEPT) {

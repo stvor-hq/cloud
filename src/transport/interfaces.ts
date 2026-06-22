@@ -127,23 +127,29 @@ export interface IStvorTransport {
    */
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
 
-  /**
-   * Query the status of a crypto session between two agents.
-   * Used for debugging and monitoring double-ratchet state.
-   */
-  getSessionStatus(agentId: string): Promise<IStvorSession | null>;
+/**
+    * Query the status of a crypto session between two agents.
+    * Used for debugging and monitoring double-ratchet state.
+    */
+   getSessionStatus(agentId: string): Promise<IStvorSession | null>;
 
-  /**
-   * Get transport connection status.
-   */
-  getStatus(): Promise<{
-    connected: boolean;
-    agentId: string;
-    relayUrl: string;
-    activeSessions: number;
-    messagesReceived: number;
-    messagesSent: number;
-  }>;
+   /**
+    * Check if agent has an active PQC session.
+    * Returns null if no session exists.
+    */
+   getSession(agentId: string): { encryptionActive: boolean } | null;
+
+   /**
+    * Get transport connection status.
+    */
+   getStatus(): Promise<{
+     connected: boolean;
+     agentId: string;
+     relayUrl: string;
+     activeSessions: number;
+     messagesReceived: number;
+     messagesSent: number;
+   }>;
 }
 
 /**

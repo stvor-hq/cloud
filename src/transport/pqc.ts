@@ -13,6 +13,8 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { resolve } from 'path';
 import type { IStvorTransport, IStvorMessage, IStvorSession } from './interfaces';
 import { KeyStore } from './key-store';
+
+export { wasm_ec_verify };
 import { MockRelayClient } from './mock-relay';
 import { AgentIdentityService } from '../agent-identity';
 import { WebSocketRelay, type IRelay, type RelayMessage } from './relay';
@@ -610,6 +612,17 @@ console.warn(
 
   async getSessionStatus(_agentId: string): Promise<IStvorSession | null> {
     throw new NotImplementedError('getSessionStatus');
+  }
+
+  getSession(agentId: string): { encryptionActive: boolean } | null {
+    const session = this.sessionCache.get(agentId);
+    if (!session) return null;
+    const now = Date.now();
+    if (session.expiresAt < now) {
+      this.sessionCache.delete(agentId);
+      return null;
+    }
+    return { encryptionActive: true };
   }
 
   async getStatus(): Promise<{

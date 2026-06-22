@@ -1,8 +1,9 @@
 // src/core/audit-log.ts
 // Tamper-evident audit logging for Stvor AI Security operations.
 
-import { existsSync, mkdirSync, appendFileSync, readFileSync, renameSync, statSync } from 'fs';
+import { existsSync, mkdirSync, appendFileSync, readFileSync, renameSync, statSync, createReadStream } from 'fs';
 import { createHash } from 'crypto';
+import readline from 'readline';
 
 const MAX_LOG_BYTES = 10 * 1024 * 1024;
 
@@ -92,38 +93,52 @@ export interface VerifyResult {
   firstBrokenAt?: number;
 }
 
-export function verifyAuditLog(logPath?: string): VerifyResult {
+export async function verifyAuditLog(logPath?: string): Promise<VerifyResult> {
   const actualLogPath = logPath ?? getLogFile();
   if (!existsSync(actualLogPath)) {
     return { valid: true, entries: 0 };
   }
 
-  const content = readFileSync(actualLogPath, 'utf8');
-  const lines = content.trim().split('\n').filter(Boolean);
-
+  const stream = createReadStream(actualLogPath, { encoding: 'utf8' });
+  const rl = readline.createInterface({ input: stream });
   let expectedPrevHash = '';
+  let lineIndex = 0;
+  let entryCount = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const entry = JSON.parse(lines[i]) as AuditEntry;
-    const computedHash = getLogEntryHash({
-      timestamp: entry.timestamp,
-      event: entry.event,
-      agentId: entry.agentId,
-      jobId: entry.jobId,
-      details: entry.details,
-      prevHash: entry.prevHash,
-    });
+  try {
+    for await (const line of rl) {
+      if (line.trim()) {
+        let entry: AuditEntry;
+        try {
+          entry = JSON.parse(line) as AuditEntry;
+        } catch {
+          return { valid: false, entries: lineIndex, firstBrokenAt: lineIndex };
+        }
+        const computedHash = getLogEntryHash({
+          timestamp: entry.timestamp,
+          event: entry.event,
+          agentId: entry.agentId,
+          jobId: entry.jobId,
+          details: entry.details,
+          prevHash: entry.prevHash,
+        });
 
-    if (computedHash !== entry.hash) {
-      return { valid: false, entries: lines.length, firstBrokenAt: i };
+        if (computedHash !== entry.hash) {
+          return { valid: false, entries: lineIndex, firstBrokenAt: lineIndex };
+        }
+
+        if (entry.prevHash !== expectedPrevHash) {
+          return { valid: false, entries: lineIndex, firstBrokenAt: lineIndex };
+        }
+
+        expectedPrevHash = entry.hash;
+        entryCount++;
+      }
+      lineIndex++;
     }
-
-    if (entry.prevHash !== expectedPrevHash) {
-      return { valid: false, entries: lines.length, firstBrokenAt: i };
-    }
-
-    expectedPrevHash = entry.hash;
+  } catch {
+    return { valid: false, entries: lineIndex, firstBrokenAt: lineIndex };
   }
 
-  return { valid: true, entries: lines.length };
+  return { valid: true, entries: entryCount };
 }

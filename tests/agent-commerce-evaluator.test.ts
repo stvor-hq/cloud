@@ -126,7 +126,7 @@ describe('securityEvaluator', () => {
     const originalWarn = console.warn;
     let warnCalled = false;
     console.warn = (msg: string) => {
-      if (msg.includes('security issue')) {
+      if (msg.includes('security issue') || msg.includes('no active PQC session')) {
         warnCalled = true;
       }
     };

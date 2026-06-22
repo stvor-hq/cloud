@@ -4,6 +4,7 @@
 
 import { createHash, randomBytes } from 'crypto';
 import { loadContractAddresses } from '../contracts/on-chain.js';
+import { ensureWasm, wasm_ec_verify } from '../transport/pqc.js';
 
 export interface X402PaymentRequired {
   version: 'x402/1';
@@ -33,7 +34,8 @@ export interface X402PaymentHeader {
     amount: string;
     nonce: string;
     expiresAt: number;
-    signature: string;
+    signature?: string;
+    jobId?: string;
   };
 }
 
@@ -92,6 +94,27 @@ export function verifyPaymentHeader(
     }
     if (payment.payload.expiresAt < Math.floor(Date.now() / 1000)) {
       return { valid: false, reason: 'Payment expired' };
+    }
+
+    const signature = payment.payload.signature.startsWith('0x')
+      ? payment.payload.signature.slice(2)
+      : payment.payload.signature;
+
+    try {
+      ensureWasm();
+    } catch {
+      return { valid: false, reason: 'WASM crypto not loaded' };
+    }
+
+    const payload = `${payment.payload.from}:${payment.payload.to}:${payment.payload.amount}:${payment.payload.nonce}:${payment.payload.expiresAt}:${payment.payload.jobId ?? ''}`;
+
+    const recovered = wasm_ec_verify(
+      new TextEncoder().encode(payload),
+      signature,
+      payment.payload.from
+    );
+    if (!recovered) {
+      return { valid: false, reason: 'Invalid signature' };
     }
 
     return { valid: true };

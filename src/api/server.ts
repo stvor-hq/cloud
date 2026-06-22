@@ -122,6 +122,7 @@ export class ApiServer {
   private settings: INodeSettings;
   private transport: StvorTransportManager | null = null;
   private readonly apiKey: string;
+   private readonly appToken: string;
   private server: ReturnType<typeof Bun.serve> | null = null;
   private readonly agentChallenges: IChallengeStore;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -133,18 +134,19 @@ export class ApiServer {
 
     const production = isProductionMode();
     const apiKey = this.settings.apiKey || process.env.STVOR_API_KEY;
+    const appToken = this.settings.appToken || process.env.STVOR_APP_TOKEN;
 
     if (production) {
-      requireProductionEnv('STVOR_API_KEY');
-      this.apiKey = apiKey!;
-    } else {
       if (!apiKey) {
-        console.warn(
-          '[API Server] WARNING: Using default API key "stvor-demo-key". This MUST be changed for production via STVOR_API_KEY.',
-        );
+        throw new Error('STVOR_API_KEY is required in production mode');
       }
-      this.apiKey = apiKey || 'stvor-demo-key';
+      if (!appToken) {
+        throw new Error('STVOR_APP_TOKEN is required in production mode');
+      }
     }
+
+    this.apiKey = apiKey ?? '';
+    this.appToken = appToken ?? '';
 
     if (production) {
       const challengePath = process.env.STVOR_CHALLENGE_STORE || './data/challenges.json';
@@ -227,6 +229,11 @@ if (path.startsWith('/mcp/')) {
     }
 
     if (method === 'POST' && path === '/mcp/call') {
+      try {
+        this.requireTransportAuth(req);
+      } catch (err) {
+        return this._response(401, { error: 'Authorization required for MCP tool calls' });
+      }
       const commerce = this.runtime.getPlugin<ICommercePlugin>('agent-commerce');
       const { handleMcpToolCall } = await import('../mcp/server.js');
       const body = await parseJSON(req) as { tool: string; args: Record<string, unknown> };
@@ -350,7 +357,7 @@ if (path.startsWith('/mcp/')) {
         SecurityGuard.checkRateLimit(this.settings.agentId);
         const { decision, reason } = body as Record<string, unknown>;
 
-        const job = await commerce.evaluateJob(jobId, decision as 'ACCEPT' | 'REJECT' | 'PARTIAL', reason as string | undefined);
+        const job = await commerce.evaluateJob(jobId, this.settings.agentId, decision as 'ACCEPT' | 'REJECT' | 'PARTIAL', reason as string | undefined);
 
         return this._response(200, { success: true, job });
       } catch {

@@ -103,6 +103,7 @@ export interface IStvorTransport {
   receiveSecureMessage(timeoutMs?: number): Promise<IStvorMessage | null>;
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
   getSessionStatus(agentId: string): Promise<IStvorSession | null>;
+  getSession(agentId: string): { encryptionActive: boolean } | null;
   getStatus(): Promise<{
     connected: boolean;
     agentId: string;
@@ -244,10 +245,11 @@ export class MockRelayClient {
 }
 
 export class StvorTransportManager implements IStvorTransport {
-  private agentId: string;
-  private keyPair: HybridKeyPair;
-  private messageHandlers: Array<(msg: IStvorMessage) => Promise<void>> = [];
-  private connected = false;
+   private agentId: string;
+   private keyPair: HybridKeyPair;
+   private messageHandlers: Array<(msg: IStvorMessage) => Promise<void>> = [];
+   private connected = false;
+   private sessionCache: Map<string, { encryptionActive: boolean; createdAt: number }> = new Map();
 
   constructor(config: {
     agentId: string;
@@ -342,6 +344,12 @@ export class StvorTransportManager implements IStvorTransport {
 
   async getSessionStatus(_agentId: string): Promise<IStvorSession | null> {
     return null;
+  }
+
+  getSession(agentId: string): { encryptionActive: boolean } | null {
+    const session = this.sessionCache.get(agentId);
+    if (!session) return null;
+    return { encryptionActive: session.encryptionActive };
   }
 
   async getStatus(): Promise<{

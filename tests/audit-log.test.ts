@@ -12,17 +12,17 @@ afterEach(() => {
 
 describe('Audit log', () => {
 
-  it('writes entries and verifies chain integrity', () => {
+  it('writes entries and verifies chain integrity', async () => {
     auditLog('JOB_CREATED', { jobId: 'job-test001' }, 'alice');
     auditLog('JOB_FUNDED', { amount: '1000' }, 'alice', 'job-test001');
     auditLog('SECURITY_BLOCKED', { pattern: 'drain wallet' }, 'attacker');
 
-    const result = verifyAuditLog(`${TEST_DIR}/audit.log`);
+    const result = await verifyAuditLog(`${TEST_DIR}/audit.log`);
     expect(result.valid).toBe(true);
     expect(result.entries).toBe(3);
   });
 
-  it('detects tampered entries', () => {
+  it('detects tampered entries', async () => {
     auditLog('JOB_CREATED', { amount: '1000' }, 'alice');
     auditLog('JOB_FUNDED', { amount: '1000' }, 'alice');
 
@@ -33,7 +33,7 @@ describe('Audit log', () => {
     lines[0] = JSON.stringify(tampered);
     writeFileSync(logPath, lines.join('\n') + '\n');
 
-    const result = verifyAuditLog(logPath);
+    const result = await verifyAuditLog(logPath);
     expect(result.valid).toBe(false);
     expect(result.firstBrokenAt).toBe(0);
   });
