@@ -1,3 +1,19 @@
+## [Unreleased] - Release Preparation: Secrets & Configuration Hardening
+
+### Critical Security Fixes
+
+- **SECRETS-1 — Removed hardcoded tokens from install scripts**: `install.sh` and `EXECUTE.sh` no longer write hardcoded tokens (`ALICE_TOKEN`, `BOB_TOKEN`, `CHARLIE_TOKEN`, `STVOR_APP_TOKEN=stvor_dev_test123`) into generated `.env` or `.env.local` files. Generated files now use commented placeholders or omit secret values entirely.
+- **SECRETS-2 — Removed hardcoded fallbacks from `.env.example` and docs**: `.env.example` no longer contains `STVOR_API_KEY=stvor-demo-key`. `SECURITY.md` and `ARCHITECTURE.md` no longer document hardcoded secret values as defaults.
+
+### High Severity Fixes
+
+- **SECRETS-3 — Replaced public Railway URL with placeholder**: `README.md`, `SKILL.md`, and `packages/plugin-agent-commerce/README.md` now use `wss://<your-railway-url>` instead of the production Railway address.
+- **SECRETS-4 — Added Docker HEALTHCHECK**: `Dockerfile` now includes a `HEALTHCHECK` instruction that probes the `/health` endpoint every 30 seconds using Bun's built-in `fetch`.
+
+### Documentation
+
+- **DOC-1 — Clarified @stvor/web3 availability**: `README.md` updated to note that `@stvor/web3@0.3.0` is published on npm (`https://www.npmjs.com/package/@stvor/web3`).
+
 ## [Unreleased] - Security Audit Fixes for elizaOS PR Readiness
 
 ### Critical Security Fixes

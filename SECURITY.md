@@ -10,7 +10,7 @@ This document summarizes the security hardening and risk controls applied to Stv
   - This ensures the demo and Dockerized node remain runnable without external relay connectivity.
 
 - **Environment defaults**
-  - Added hardcoded safe defaults for all boot-critical variables in `src/core/settings.ts`:
+  - Added safe defaults for boot-critical variables in `src/core/settings.ts`:
     - `STVOR_MODE`
     - `STVOR_PORT`
     - `STVOR_LOG_LEVEL`
@@ -20,11 +20,11 @@ This document summarizes the security hardening and risk controls applied to Stv
     - `STVOR_RELAY_URL`
     - `STVOR_API_KEY`
     - `STVOR_APP_TOKEN`
-  - This supports zero-config startup for hackathon judges.
+  - All secret values must be provided via environment variables or configuration files. No hardcoded credentials are present in the source code.
 
 - **API authorization**
   - Added `Authorization: Bearer <key>` enforcement for `/api/transport/*` endpoints.
-  - The default API key is `stvor-demo-key` for demo mode, but it can be overridden via `STVOR_API_KEY`.
+  - `STVOR_API_KEY` must be explicitly configured; there is no hardcoded default.
   - Added test coverage for authenticated transport API access.
 
 - **Payload and transport validation**

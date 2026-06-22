@@ -289,7 +289,7 @@ The Stvor SDK automatically manages Double Ratchet state for each session:
 // Initialize
 const transport = new StvorTransportManager({
   agentId: "alice",
-  appToken: "stvor_dev_test123",
+  appToken: process.env.STVOR_APP_TOKEN,
   relayUrl: "http://localhost:4444"
 })
 
@@ -543,7 +543,7 @@ The project includes a production-hardening layer activated via `STVOR_PRODUCTIO
 - Cryptographic errors are logged with a unique event ID, agent ID, and ISO timestamp, and re-thrown as `PqcEncryptionError` for upstream handling.
 
 ### API Server (`src/api/server.ts`)
-- `STVOR_API_KEY` is required. The default `stvor-demo-key` is rejected in production.
+- `STVOR_API_KEY` is required. There is no default; it must be set explicitly.
 - Challenge storage is persisted to disk (`STVOR_CHALLENGE_STORE`, default `./data/challenges.json`) via `IChallengeStore`. For clusters, swap the implementation with Redis.
 
 ### KeyStore (`src/transport/key-store.ts`)

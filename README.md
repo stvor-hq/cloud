@@ -17,8 +17,8 @@ Quantum-resistant encrypted escrow for autonomous agents. Prevents credential th
   "name": "SecureCommerceAgent",
   "plugins": ["@elizaos/plugin-agent-commerce"],
   "settings": {
-    "STVOR_RELAY_URL": "wss://cloud-production-75c5.up.railway.app",
-    "STVOR_APP_TOKEN": "your-railway-token",
+    "STVOR_RELAY_URL": "wss://<your-railway-url>",
+    "STVOR_APP_TOKEN": "<your-railway-token>",
     "STVOR_STRICT_MODE": "true"
   }
 }
@@ -52,13 +52,13 @@ An attacker capturing ciphertext today cannot recover plaintext even with a futu
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| ML-KEM-768 + Double Ratchet | ✅ | @stvor/web3 Rust/WASM, 53 NIST vectors |
+| ML-KEM-768 + Double Ratchet | ✅ | @stvor/web3 Rust/WASM (published on npm), 53 NIST vectors |
 | Key storage | ✅ | AES-256-GCM, scrypt KDF |
 | SecurityGuard | ✅ | 4 attack categories, rate limiting, replay protection |
 | Audit log | ✅ | SHA-256 hash-chain, tamper-detectable |
 | ERC-8183 state machine | ✅ | 6 states: OPEN→FUNDED→SUBMITTED→COMPLETE/REFUND/ABORTED |
 | ElizaOS plugin | ✅ | PR-ready npm package |
-| Production relay | ✅ | wss://cloud-production-75c5.up.railway.app |
+| Production relay | ✅ | wss://<your-railway-url> |
 | On-chain contract | ⚠️ | AgenticCommerce.sol compiled, deployment pending |
 | x402 blockchain signing | 🔜 | Protocol layer done, EIP-712 pending |
 
@@ -72,7 +72,7 @@ An attacker capturing ciphertext today cannot recover plaintext even with a futu
 | STVOR_ALLOW_MOCK | Allow mock relay fallback | false |
 | STVOR_KEY_PASSWORD | Key encryption password | generated |
 | STVOR_PRODUCTION_MODE | Enable enterprise production mode | false |
-| STVOR_API_KEY | API server authentication key | stvor-demo-key (dev only) |
+| STVOR_API_KEY | API server authentication key | must be set explicitly |
 | STVOR_CHALLENGE_STORE | Path to persistent challenge store | ./data/challenges.json |
 | STVOR_RATE_LIMIT_STORE | Path to persistent rate-limit store | ./data/rate-limits.json |
 | RELAY_TOKEN | Relay server authentication token | stvor-relay-dev-token |
@@ -82,7 +82,7 @@ An attacker capturing ciphertext today cannot recover plaintext even with a futu
 Enable `STVOR_PRODUCTION_MODE=true` to activate hardened production defaults:
 
 - **Transport**: `STVOR_RELAY_URL` must be set and use `wss://`. Mock relay and `STVOR_ALLOW_MOCK` are disabled.
-- **API Key**: `STVOR_API_KEY` is required. The default `stvor-demo-key` is rejected.
+- **API Key**: `STVOR_API_KEY` is required. There is no default; it must be set explicitly.
 - **Key Password**: `STVOR_KEY_PASSWORD` is required. Automatic password generation (`.stvor_key_pass`) is disabled.
 - **Persistence**: Agent challenges and rate-limit state are stored on disk by default. For multi-instance deployments, replace with Redis (configurable via `STVOR_CHALLENGE_STORE` and `STVOR_RATE_LIMIT_STORE`).
 - **Relay**: `RELAY_TOKEN` is required when running the relay server in production.

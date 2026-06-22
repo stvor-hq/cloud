@@ -39,9 +39,10 @@ if [ ! -f "$ENV_FILE" ]; then
 # Stvor AI Security demo env defaults
 # Use wss:// for production relay connections
 STVOR_RELAY_URL=ws://localhost:4444
-ALICE_TOKEN=stvor_test_alice
-BOB_TOKEN=stvor_test_bob
-CHARLIE_TOKEN=stvor_test_charlie
+# Generate your own tokens:
+# ALICE_TOKEN=<your-token>
+# BOB_TOKEN=<your-token>
+# CHARLIE_TOKEN=<your-token>
 NODE_ENV=development
 EOF
 else
@@ -112,7 +113,8 @@ STVOR_AGENT_ID=agent-$(date +%s)
 # Stvor SDK Configuration
 # Use wss:// for production relay connections
 STVOR_RELAY_URL=ws://localhost:4444
-STVOR_APP_TOKEN=stvor_dev_test123
+# STVOR_APP_TOKEN must be set explicitly:
+# STVOR_APP_TOKEN=<your-token>
 
 # Optional: API configuration
 # STVOR_API_TIMEOUT=30000

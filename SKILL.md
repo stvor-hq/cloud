@@ -31,8 +31,8 @@ Package name:
 {
   "plugins": ["@elizaos/plugin-agent-commerce"],
   "settings": {
-    "STVOR_RELAY_URL": "wss://cloud-production-75c5.up.railway.app",
-    "STVOR_APP_TOKEN": "your-railway-token",
+    "STVOR_RELAY_URL": "wss://<your-railway-url>",
+    "STVOR_APP_TOKEN": "<your-railway-token>",
     "STVOR_STRICT_MODE": "true",
     "STVOR_ALLOW_MOCK": "false"
   }

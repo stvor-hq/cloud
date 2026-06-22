@@ -13,5 +13,7 @@ COPY package.json bun.lock ./
 COPY src ./src
 RUN mkdir -p /app/data && chown -R bun:bun /app
 EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD bun -e 'fetch("http://localhost:8787/health").then(r=>process.exit(r.ok?0:1))'
 USER bun
 CMD ["bun", "src/relay/server.ts"]

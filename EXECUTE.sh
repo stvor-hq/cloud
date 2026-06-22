@@ -66,8 +66,10 @@ STVOR_LOG_LEVEL=info
 STVOR_DB_PATH=./data/stvor.db
 STVOR_PQC_ENABLED=true
 STVOR_AGENT_ID=agent-$(date +%s)
-STVOR_RELAY_URL=ws://localhost:4444
-STVOR_APP_TOKEN=stvor_dev_test123
+# STVOR_RELAY_URL must be set explicitly:
+# STVOR_RELAY_URL=wss://your-relay.example.com
+# STVOR_APP_TOKEN must be set explicitly:
+# STVOR_APP_TOKEN=<your-token>
 EOF
   print_success "Created .env.local with default configuration"
 else
