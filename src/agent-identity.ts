@@ -1,8 +1,6 @@
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
 import { randomBytes } from 'crypto';
 import { keccak_256 } from '@noble/hashes/sha3';
-import { initSync, wasm_ec_sign, wasm_ec_verify, type WasmKeyPair } from '@stvor/web3/wasm';
+import { ed25519Sign, ed25519Verify, type SecureIdentityKeyPair } from './transport/pqc';
 
 export interface AgentChallenge {
   challenge: string;
@@ -14,21 +12,6 @@ export interface AgentChallenge {
 export interface AgentIdentity {
   agentId: string;
   publicKey: string;
-}
-
-interface HybridKeyPairLike {
-  ik: WasmKeyPair;
-}
-
-let wasmInitialized = false;
-
-function ensureWasm(): void {
-  if (wasmInitialized) return;
-  const wasmBytes = readFileSync(
-    resolve('./node_modules/@stvor/web3/dist/wasm/stvor_crypto_bg.wasm')
-  );
-  initSync({ module: wasmBytes });
-  wasmInitialized = true;
 }
 
 export function keccak256(input: Uint8Array | string): string {
@@ -45,9 +28,8 @@ export function deriveAgentIdFromPublicKey(publicKey: string): string {
   return `agent-${keccak256(publicKey)}`;
 }
 
-export function signChallenge(challenge: string, keyPair: HybridKeyPairLike): string {
-  ensureWasm();
-  return wasm_ec_sign(new TextEncoder().encode(challenge), keyPair.ik);
+export function signChallenge(challenge: string, keyPair: SecureIdentityKeyPair): string {
+  return ed25519Sign(new TextEncoder().encode(challenge), keyPair);
 }
 
 export function verifyChallenge(
@@ -55,8 +37,7 @@ export function verifyChallenge(
   signature: string,
   publicKey: string
 ): boolean {
-  ensureWasm();
-  return wasm_ec_verify(new TextEncoder().encode(challenge), signature, publicKey);
+  return ed25519Verify(new TextEncoder().encode(challenge), signature, publicKey);
 }
 
 export function verifyAgentChallenge(
@@ -70,7 +51,7 @@ export function verifyAgentChallenge(
 export class AgentIdentityService {
   private readonly agentId: string;
 
-  constructor(private readonly keyPair: HybridKeyPairLike) {
+  constructor(private readonly keyPair: SecureIdentityKeyPair) {
     this.agentId = deriveAgentIdFromPublicKey(keyPair.ik.public_key);
   }
 

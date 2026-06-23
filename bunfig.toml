@@ -2,3 +2,7 @@
 
 [build]
 target = "bun"
+
+[test]
+# Ignore the vendored elizaOS monorepo — its test config breaks root-level `bun test`.
+path-ignore-patterns = ["eliza/**"]

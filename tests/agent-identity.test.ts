@@ -5,11 +5,11 @@ import {
   keccak256,
   verifyChallenge,
 } from '../src/agent-identity';
-import { HybridPQCTransport } from '../src/transport/pqc';
+import { SecureAgentTransport } from '../src/transport/pqc';
 
 describe('agent identity', () => {
   it('derives the same Agent ID from the same public key', () => {
-    const keyPair = HybridPQCTransport.generateKeyPair();
+    const keyPair = SecureAgentTransport.generateKeyPair();
     const first = deriveAgentIdFromPublicKey(keyPair.ik.public_key);
     const second = deriveAgentIdFromPublicKey(keyPair.ik.public_key);
 
@@ -22,7 +22,7 @@ describe('agent identity', () => {
   });
 
   it('signs and verifies a challenge with the stored identity key', () => {
-    const keyPair = HybridPQCTransport.generateKeyPair();
+    const keyPair = SecureAgentTransport.generateKeyPair();
     const service = new AgentIdentityService(keyPair);
     const challenge = service.createChallenge();
     const signature = service.signChallenge(challenge.challenge);

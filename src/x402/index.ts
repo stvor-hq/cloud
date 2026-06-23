@@ -3,9 +3,8 @@
 // Spec: https://x402.org
 
 import { randomBytes } from 'crypto';
-import { WasmKeyPair } from '@stvor/web3/wasm';
 import { loadContractAddresses } from '../contracts/on-chain.js';
-import { ensureWasm, wasm_ec_sign, wasm_ec_verify } from '../transport/pqc.js';
+import { SecureAgentTransport, ed25519Sign, ed25519Verify } from '../transport/pqc.js';
 
 export interface X402PaymentRequired {
   version: 'x402/1';
@@ -101,20 +100,8 @@ export function verifyPaymentHeader(
       ? payment.payload.signature.slice(2)
       : payment.payload.signature;
 
-    try {
-      ensureWasm();
-    } catch {
-      return { valid: false, reason: 'WASM crypto not loaded' };
-    }
-
     const payload = `${payment.payload.from}:${payment.payload.to}:${payment.payload.amount}:${payment.payload.nonce}:${payment.payload.expiresAt}:${payment.payload.jobId ?? ''}`;
-
-    const recovered = wasm_ec_verify(
-      new TextEncoder().encode(payload),
-      signature,
-      payment.payload.from
-    );
-    if (!recovered) {
+    if (!ed25519Verify(new TextEncoder().encode(payload), signature, payment.payload.from)) {
       return { valid: false, reason: 'Invalid signature' };
     }
 
@@ -130,16 +117,15 @@ export function generateMockPaymentHeader(
   asset: string,
   amountWei: string,
   network = 'sepolia',
-  signerKeyPair?: WasmKeyPair,
+  signerKeyPair?: ReturnType<typeof SecureAgentTransport.generateKeyPair>,
 ): string {
-  ensureWasm();
-  const keyPair = signerKeyPair ?? new WasmKeyPair();
-  const publicKey = keyPair.public_key;
+  const keyPair = signerKeyPair ?? SecureAgentTransport.generateKeyPair();
+  const publicKey = keyPair.signingPublicKey;
   const nonce = randomBytes(16).toString('hex');
   const expiresAt = Math.floor(Date.now() / 1000) + 300;
 
   const payloadStr = `${publicKey}:${to}:${amountWei}:${nonce}:${expiresAt}:`;
-  const signature = wasm_ec_sign(new TextEncoder().encode(payloadStr), keyPair);
+  const signature = ed25519Sign(new TextEncoder().encode(payloadStr), keyPair);
 
   const header: X402PaymentHeader = {
     version: 'x402/1',

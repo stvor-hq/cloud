@@ -1,12 +1,12 @@
 /**
  * @file Stvor SDK Integration Interfaces
- * 
+ *
  * Type definitions for secure agent-to-agent communication using Stvor SDK.
  * Stvor provides:
- *   - Signal Protocol (X3DH key exchange + Double Ratchet)
- *   - ML-KEM-768 hybrid post-quantum encryption
- *   - Perfect forward secrecy + quantum resistance
- * 
+ *   - Ed25519 signing + X25519 key agreement
+ *   - AES-256-GCM payload encryption with HKDF-SHA256 key derivation
+ *   - Replay protection and envelope signature verification
+ *
  * This layer ensures all commerce payloads (prompts, deliverables, data) bypass
  * public infrastructure and remain encrypted end-to-end.
  */
@@ -34,7 +34,6 @@ export interface IStvorMessage {
     jobId: string;
     data: unknown;
     encrypted?: boolean;
-    pqcEncrypted?: boolean;
     encryption?: string;
     [key: string]: unknown;
   };
@@ -42,6 +41,7 @@ export interface IStvorMessage {
   /** Payload metadata (for routing hints) */
   metadata?: {
     payloadHash?: string; // SHA-256 of plaintext for ledger
+    encryptedPayloadHash?: string;
     actionType?: string;
     version?: string;
   };
@@ -49,10 +49,7 @@ export interface IStvorMessage {
   /** Whether the message was transmitted through encrypted Stvor transport */
   encrypted?: boolean;
 
-  /** Whether the message used post-quantum cryptography */
-  pqcEncrypted?: boolean;
-
-  /** Crypto transport metadata, e.g. ML-KEM-768 + Double Ratchet */
+  /** Crypto transport metadata */
   encryption?: string;
 
   /** Stvor session ID for tracking encrypted sessions */
@@ -67,7 +64,7 @@ export interface IStvorSession {
   sessionId: string;
   agentA: string;
   agentB: string;
-  encryptionKeyCount: number; // Double Ratchet iteration count
+  encryptionKeyCount: number; // per-message ephemeral key count
   createdAt: number;
   expiresAt: number;
 }
@@ -126,15 +123,16 @@ export interface IStvorTransport {
    * Useful for event-driven agent architectures.
    */
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
+  offMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
 
 /**
     * Query the status of a crypto session between two agents.
-    * Used for debugging and monitoring double-ratchet state.
+    * Used for debugging and monitoring session state.
     */
    getSessionStatus(agentId: string): Promise<IStvorSession | null>;
 
    /**
-    * Check if agent has an active PQC session.
+    * Check if agent has an active encrypted session.
     * Returns null if no session exists.
     */
    getSession(agentId: string): { encryptionActive: boolean } | null;
@@ -165,4 +163,3 @@ export interface IPayloadHasher {
 
   verifyHash(data: unknown, hash: string): boolean;
 }
-

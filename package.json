@@ -1,7 +1,7 @@
 {
   "name": "stvor-ai-security",
   "version": "0.1.0",
-  "description": "Quantum-Resistant Secure Agent-to-Agent Operator Node — ERC-8183 Commerce Protocol + Post-Quantum Cryptography",
+  "description": "Authenticated agent-to-agent commerce node with ElizaOS integration and secure transport",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
@@ -15,9 +15,10 @@
     "build:relay": "bun build --outdir dist src/relay/server.ts",
     "build:plugin": "bun --cwd packages/plugin-agent-commerce build",
     "type-check": "tsc --noEmit",
+    "verify": "bun run type-check && bun run lint && bun run test",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
-    "test": "bun test",
+    "test": "bun test --path-ignore-patterns 'eliza/**'",
     "test:commerce": "bun test tests/commerce-flow.test.ts",
     "start:demo": "bun run src/demo.ts",
     "demo:full": "bun src/demo-full.ts",
@@ -32,7 +33,6 @@
     "agent",
     "commerce",
     "erc8183",
-    "pqc",
     "encryption",
     "elizaos",
     "ai-security"
@@ -43,7 +43,6 @@
     "@elizaos/core": ">=1.0.0"
   },
   "dependencies": {
-    "@stvor/web3": "^0.3.0",
     "dotenv": "^16.3.1",
     "ws": "^8.18.0"
   },

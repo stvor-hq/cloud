@@ -1,8 +1,8 @@
 import { join } from 'path';
 import { KeyStore } from './transport/key-store';
-import { HybridPQCTransport, StvorTransportManager, type HybridKeyPair } from './transport/pqc';
+import { SecureAgentTransport as HybridPQCTransport, StvorTransportManager, type SecureIdentityKeyPair as HybridKeyPair } from './transport/pqc';
 import { AgentCommercePlugin, MemoryJobStore } from '../packages/plugin-agent-commerce/src';
-import { MockPqcReputationGate } from '../packages/plugin-agent-commerce/src';
+import { StubReputationGate as MockPqcReputationGate } from '../packages/plugin-agent-commerce/src';
 import { PayloadHasher } from './transport/pqc';
 import {
   generateMockPaymentHeader,
@@ -111,14 +111,10 @@ async function main(): Promise<void> {
   const gate = new MockPqcReputationGate();
   gate.setReputation(alice.id, 100);
   gate.setFundingLimit(alice.id, amount);
-  const commerce = new AgentCommercePlugin(
-    { agentId: 'demo-runtime' },
-    undefined,
-    {
-      jobStore: store,
-      reputationGate: gate,
-    },
-  );
+  const commerce = new AgentCommercePlugin(undefined, {
+    jobStore: store,
+    reputationGate: gate,
+  });
 
   const job = await commerce.createJob(
     alice.id,
@@ -139,9 +135,7 @@ async function main(): Promise<void> {
   };
   const encryptedPrompt = HybridPQCTransport.encryptOnce(
     alice.keyPair,
-    bob.keyPair.ik.public_key,
-    bob.keyPair.spk.public_key,
-    bob.keyPair.pqc.ek,
+    HybridPQCTransport.getPublicIdentity(bob.keyPair),
     encodeJson(promptPayload),
   );
   encryptedMessages += 1;
@@ -160,9 +154,7 @@ async function main(): Promise<void> {
   };
   const encryptedResult = HybridPQCTransport.encryptOnce(
     bob.keyPair,
-    alice.keyPair.ik.public_key,
-    alice.keyPair.spk.public_key,
-    alice.keyPair.pqc.ek,
+    HybridPQCTransport.getPublicIdentity(alice.keyPair),
     encodeJson(deliverable),
   );
   encryptedMessages += 1;

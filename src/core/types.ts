@@ -14,7 +14,6 @@ export interface INodeSettings {
   port: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   dbPath: string;
-  pqcEnabled: boolean;
   agentId: string;
   relayUrl: string;
   apiKey: string;
@@ -60,7 +59,7 @@ export enum ERC8183JobState {
   TERMINAL = 'TERMINAL',
 }
 
-/** Core agent identity for PQC transport */
+/** Core agent identity for Stvor transport */
 export interface IAgentIdentity {
   agentId: string;
   publicKey: string;

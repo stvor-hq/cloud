@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { HybridPQCTransport, PayloadHasher, ensureWasm } from '../src/transport/pqc';
-
-ensureWasm();
+import { SecureAgentTransport, PayloadHasher } from '../src/transport/pqc';
 
 const ITERATIONS = 100;
 
@@ -15,48 +13,48 @@ function bench(label: string, fn: () => void, count = ITERATIONS): { avgMs: numb
 }
 
 describe('Performance benchmarks', () => {
-  const alice = HybridPQCTransport.generateKeyPair();
-  const bob   = HybridPQCTransport.generateKeyPair();
+  const alice = SecureAgentTransport.generateKeyPair();
+  const bob   = SecureAgentTransport.generateKeyPair();
   const payload = new TextEncoder().encode(JSON.stringify({
     jobId: 'job-perf-test',
-    task: 'Build secure pipeline for Waifu.fun',
+    task: 'Build secure pipeline',
     metadata: { priority: 'high', budget: 1000000 }
   }));
 
-  it('keygen: <50ms per keypair (Rust/WASM)', () => {
-    const result = bench('ML-KEM-768 + P-256 keygen', () => {
-      HybridPQCTransport.generateKeyPair();
+  it('keygen: <50ms per keypair', () => {
+    const result = bench('Ed25519 + X25519 keygen', () => {
+      SecureAgentTransport.generateKeyPair();
     }, 50);
     expect(result.avgMs).toBeLessThan(50);
   });
 
   it('encrypt: <20ms per operation', () => {
     const result = bench('hybrid encryptOnce', () => {
-      HybridPQCTransport.encryptOnce(
-        alice, bob.ik.public_key, bob.spk.public_key, bob.pqc.ek, payload
+      SecureAgentTransport.encryptOnce(
+        alice, SecureAgentTransport.getPublicIdentity(bob), payload
       );
     });
     expect(result.avgMs).toBeLessThan(20);
   });
 
   it('decrypt: <20ms per operation', () => {
-    const encrypted = HybridPQCTransport.encryptOnce(
-      alice, bob.ik.public_key, bob.spk.public_key, bob.pqc.ek, payload
+    const encrypted = SecureAgentTransport.encryptOnce(
+      alice, SecureAgentTransport.getPublicIdentity(bob), payload
     );
     const result = bench('hybrid decryptOnce', () => {
-      HybridPQCTransport.decryptOnce(bob, encrypted);
+      SecureAgentTransport.decryptOnce(bob, encrypted, { trackReplay: false });
     });
     expect(result.avgMs).toBeLessThan(20);
   });
 
   it('full round-trip: <40ms', () => {
     const result = bench('full encrypt+decrypt round-trip', () => {
-      const a = HybridPQCTransport.generateKeyPair();
-      const b = HybridPQCTransport.generateKeyPair();
-      const enc = HybridPQCTransport.encryptOnce(
-        a, b.ik.public_key, b.spk.public_key, b.pqc.ek, payload
+      const a = SecureAgentTransport.generateKeyPair();
+      const b = SecureAgentTransport.generateKeyPair();
+      const enc = SecureAgentTransport.encryptOnce(
+        a, SecureAgentTransport.getPublicIdentity(b), payload
       );
-      HybridPQCTransport.decryptOnce(b, enc);
+      SecureAgentTransport.decryptOnce(b, enc, { trackReplay: false });
     });
     expect(result.avgMs).toBeLessThan(40);
   });
@@ -73,8 +71,8 @@ describe('Performance benchmarks', () => {
     const start = performance.now();
     let count = 0;
     while (performance.now() - start < 1000) {
-      HybridPQCTransport.encryptOnce(
-        alice, bob.ik.public_key, bob.spk.public_key, bob.pqc.ek, payload
+      SecureAgentTransport.encryptOnce(
+        alice, SecureAgentTransport.getPublicIdentity(bob), payload
       );
       count++;
     }

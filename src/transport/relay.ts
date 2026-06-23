@@ -7,7 +7,6 @@ export interface RelayMessage {
   to: string;
   from?: string;
   payload?: string;
-  mlkemCt?: string;
   aliceIkPub?: string;
   aliceSpkPub?: string;
   timestamp?: number;
@@ -114,7 +113,6 @@ export class WebSocketRelay implements IRelay {
       type: 'message',
       to,
       payload: message.payload,
-      mlkemCt: message.mlkemCt,
       aliceIkPub: message.aliceIkPub,
       aliceSpkPub: message.aliceSpkPub,
       messageId: message.messageId,
@@ -143,7 +141,7 @@ export async function createRelay(agentId = process.env.STVOR_AGENT_ID ?? 'stvor
 
   const shouldAllowMock = (): boolean => {
     const allowMock = process.env.STVOR_ALLOW_MOCK;
-    return allowMock === 'true';
+    return process.env.NODE_ENV === 'test' || allowMock === 'true';
   };
 
   if (relayUrl && (relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'))) {
@@ -154,14 +152,8 @@ export async function createRelay(agentId = process.env.STVOR_AGENT_ID ?? 'stvor
 
   if (relayUrl === 'mock' || !relayUrl) {
     if (!shouldAllowMock()) {
-      const isDev = process.env.NODE_ENV === 'development';
-      if (!isDev) {
-        throw new Error(
-          'Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
-        );
-      }
-      console.warn(
-        '[Relay] WARNING: Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
+      throw new Error(
+        'Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
       );
     }
   }

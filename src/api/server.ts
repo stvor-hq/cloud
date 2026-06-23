@@ -9,7 +9,7 @@
  * 
  * Data flow:
  *   - Job management: Standard CRUD endpoints
- *   - Transport: PQC-encrypted payload delivery via Stvor relay
+ *   - Transport: Encrypted payload delivery via Stvor relay
  *   - Status: Real-time connection and session monitoring
  */
 
@@ -489,7 +489,6 @@ if (path.startsWith('/mcp/')) {
         agentId: this.settings.agentId,
         selfAgentId: this.transport?.getAgentId() ?? null,
         state: this.runtime.state,
-        pqcEnabled: this.settings.pqcEnabled,
         uptime: process.uptime(),
         transport: transportStatus
           ? {
@@ -551,7 +550,7 @@ if (path.startsWith('/mcp/')) {
       const { x402Middleware } = await import('../x402/index.js');
       const middleware = x402Middleware(
         '1000000000000000',
-        'Access encrypted job deliverable via PQC transport'
+        'Access encrypted job deliverable via Stvor transport'
       );
       const paymentResult = middleware(req, url);
       if (paymentResult) return paymentResult;

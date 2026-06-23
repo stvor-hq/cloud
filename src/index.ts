@@ -1,5 +1,5 @@
 /**
- * @file Main Entry Point (Hybrid CLI/API with PQC Transport)
+ * @file Main Entry Point (Hybrid CLI/API with Stvor Transport)
  * 
  * Doolittle-style CLI entry point for Stvor AI Security.
  * Supports two boot modes:
@@ -11,7 +11,7 @@
  *   1. Load settings (immediate)
  *   2. Create runtime
  *   3. Register plugins
- *   4. Initialize transport (Signal Protocol + ML-KEM-768)
+ *   4. Initialize transport (Ed25519 + X25519 + AES-256-GCM)
  *   5. Boot in chosen mode
  */
 
@@ -43,7 +43,7 @@ function parseArgs(): 'cli' | 'api' {
  * 
  * Process:
  *   1. Create StvorTransportManager with config
- *   2. Connect to Stvor relay (Signal Protocol + ML-KEM-768)
+ *   2. Connect to Stvor relay (sat-v1 encrypted transport)
  *   3. Create transport bridge to wire into commerce plugin
  *   4. Register event listeners
  */
@@ -55,7 +55,7 @@ async function initializeTransport(
   const relayUrl = runtime.settings.relayUrl || 'local';
   const appToken = runtime.settings.appToken;
 
-  console.log(`\n[Bootstrap] Initializing Stvor PQC Transport...`);
+  console.log(`\n[Bootstrap] Initializing Stvor Transport...`);
   const transport = new StvorTransportManager({
     agentId,
     appToken,
@@ -64,7 +64,7 @@ async function initializeTransport(
 
   try {
     await transport.connect();
-    console.log(`[Bootstrap] Transport connected (PQC: enabled)`);
+    console.log(`[Bootstrap] Transport connected`);
 
     // Create event listener bridge
     const context = commercePlugin.getContext();
@@ -275,7 +275,7 @@ async function main(): Promise<void> {
 
     // Phase 3: Register plugins
     console.log('[Bootstrap] Registering plugins...');
-    const commercePlugin = createCommercePlugin(runtime);
+    const commercePlugin = createCommercePlugin();
     runtime.registerPlugin('agent-commerce', commercePlugin);
 
     // Phase 4: Boot runtime
@@ -284,10 +284,7 @@ async function main(): Promise<void> {
     await runtime.boot(bootMode);
 
     // Phase 5: Initialize transport layer
-    let transport: StvorTransportManager | null = null;
-    if (settings.pqcEnabled) {
-      transport = await initializeTransport(runtime, commercePlugin);
-    }
+    const transport = await initializeTransport(runtime, commercePlugin);
 
     console.log('[Bootstrap] Boot complete. Ready for commerce.\n');
 
