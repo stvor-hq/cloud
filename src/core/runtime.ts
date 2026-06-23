@@ -133,7 +133,7 @@ export class AgentRuntime implements IAgentRuntime {
 
   /**
    * Lazy-load a transport layer.
-   * Called when a plugin needs external connectivity (e.g., PQC, webhooks).
+   * Called when a plugin needs external connectivity (e.g., transport, webhooks).
    */
   async loadTransport(name: string): Promise<void> {
     if (this.transportLayers.has(name)) {

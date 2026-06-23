@@ -1,57 +1,138 @@
 import {
-  initSync,
-  WasmKeyPair,
-  WasmSession,
-  wasm_mlkem_keygen,
-  wasm_hybrid_session_initiate,
-  wasm_hybrid_session_respond,
-  wasm_ec_sign,
-  wasm_ec_verify,
-} from '@stvor/web3/wasm';
-import { readFileSync } from 'fs';
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
-import { resolve } from 'path';
-import type { IStvorTransport, IStvorMessage, IStvorSession } from './interfaces';
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  createCipheriv,
+  createDecipheriv,
+  diffieHellman,
+  generateKeyPairSync,
+  hkdfSync,
+  randomBytes,
+  sign,
+  timingSafeEqual,
+  verify,
+  type KeyObject,
+} from 'crypto';
+import type { IStvorMessage, IStvorSession, IStvorTransport } from './interfaces';
 import { KeyStore } from './key-store';
-
-export { wasm_ec_verify, wasm_ec_sign };
 import { MockRelayClient } from './mock-relay';
-import { AgentIdentityService } from '../agent-identity';
 import { WebSocketRelay, type IRelay, type RelayMessage } from './relay';
 import { isProductionMode, requireProductionEnv, assertWssUrl } from '../core/production';
 import { AuditLogger } from '../core/audit-log';
 
-// ─── WASM init (sync, Bun/Node compatible) ───────────────────────────────────
+const PROTOCOL_VERSION = 'sat-v1';
+const ALGORITHM = 'Ed25519 + X25519 + HKDF-SHA256 + AES-256-GCM';
+const REPLAY_WINDOW_MS = 5 * 60 * 1000;
+const SESSION_TTL_MS = 60 * 60 * 1000;
+const MAX_SEEN_NONCES_PER_SESSION = 4096;
 
-let initialized = false;
-
-export function ensureWasm(): void {
-  if (initialized) return;
-  const wasmBytes = readFileSync(
-    resolve('./node_modules/@stvor/web3/dist/wasm/stvor_crypto_bg.wasm')
-  );
-  initSync({ module: wasmBytes });
-  initialized = true;
+function toBase64Url(bytes: Buffer | Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
 }
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export interface PqcKeyPair {
-  ek: string;
-  dk: string;
+function fromBase64Url(value: string): Buffer {
+  return Buffer.from(value, 'base64url');
 }
 
-export interface HybridKeyPair {
-  ik: WasmKeyPair;
-  spk: WasmKeyPair;
-  pqc: PqcKeyPair;
+function exportPublicKey(key: KeyObject): string {
+  return toBase64Url(key.export({ type: 'spki', format: 'der' }) as Buffer);
 }
 
-export interface EncryptedPayload {
-  mlkemCt: string;
-  aliceIkPub: string;
-  aliceSpkPub: string;
+function exportPrivateKey(key: KeyObject): string {
+  return toBase64Url(key.export({ type: 'pkcs8', format: 'der' }) as Buffer);
+}
+
+export function importPublicKey(encoded: string, _algorithm: 'ed25519' | 'x25519'): KeyObject {
+  return createPublicKey({
+    key: fromBase64Url(encoded),
+    type: 'spki',
+    format: 'der',
+  });
+}
+
+export function importPrivateKey(encoded: string, _algorithm: 'ed25519' | 'x25519'): KeyObject {
+  return createPrivateKey({
+    key: fromBase64Url(encoded),
+    type: 'pkcs8',
+    format: 'der',
+  });
+}
+
+function stableStringify(value: unknown): string {
+  const seen = new WeakSet();
+  const helper = (val: unknown, depth: number): string => {
+    if (depth > PayloadHasher.MAX_STRINGIFY_DEPTH) {
+      throw new PayloadTooDeepError(PayloadHasher.MAX_STRINGIFY_DEPTH);
+    }
+    if (val === null || typeof val !== 'object') {
+      return JSON.stringify(val);
+    }
+    if (seen.has(val)) {
+      throw new Error('Circular reference detected in payload');
+    }
+    seen.add(val);
+    if (Array.isArray(val)) {
+      return `[${val.map((item) => helper(item, depth + 1)).join(',')}]`;
+    }
+    const entries = Object.entries(val as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => `${JSON.stringify(key)}:${helper(child, depth + 1)}`);
+    return `{${entries.join(',')}}`;
+  };
+  return helper(value, 0);
+}
+
+export interface SecureIdentityKeyPair {
+  agentId: string;
+  signingPublicKey: string;
+  signingPrivateKey: string;
+  encryptionPublicKey: string;
+  encryptionPrivateKey: string;
+  fingerprint: string;
+  ik: { public_key: string; private_key: string };
+  spk: { public_key: string; private_key: string };
+}
+
+export interface SecureIdentityPublic {
+  agentId: string;
+  signingPublicKey: string;
+  encryptionPublicKey: string;
+  fingerprint: string;
+}
+
+export interface SecureEnvelope {
+  version: typeof PROTOCOL_VERSION;
+  algorithm: typeof ALGORITHM;
+  senderId: string;
+  senderSigningPublicKey: string;
+  senderEncryptionPublicKey: string;
+  recipientId: string;
+  recipientSigningPublicKey: string;
+  recipientEncryptionPublicKey: string;
+  timestamp: number;
+  expiresAt: number;
+  sessionId: string;
+  nonce: string;
+  ephemeralPublicKey: string;
   ciphertext: string;
+  tag: string;
+  aad: string;
+  payloadHash: string;
+  signature: string;
+}
+
+export interface DecryptedSecureMessage {
+  payload: unknown;
+  senderId: string;
+  recipientId: string;
+  sessionId: string;
+  payloadHash: string;
+}
+
+interface SessionReplayState {
+  expiresAt: number;
+  seenNonces: Set<string>;
+  order: string[];
 }
 
 export class PayloadTooDeepError extends Error {
@@ -61,7 +142,7 @@ export class PayloadTooDeepError extends Error {
   }
 }
 
-export class PqcEncryptionError extends Error {
+export class SecureTransportError extends Error {
   constructor(
     message: string,
     public readonly agentId: string,
@@ -69,7 +150,7 @@ export class PqcEncryptionError extends Error {
     public readonly timestamp: number,
   ) {
     super(message);
-    this.name = 'PqcEncryptionError';
+    this.name = 'SecureTransportError';
   }
 }
 
@@ -80,111 +161,9 @@ export class NotImplementedError extends Error {
   }
 }
 
-// ─── HybridPQCTransport ──────────────────────────────────────────────────────
-
-export class HybridPQCTransport {
-
-  static generateKeyPair(): HybridKeyPair {
-    ensureWasm();
-    const ik = new WasmKeyPair();
-    const spk = new WasmKeyPair();
-    const pqc = JSON.parse(wasm_mlkem_keygen()) as PqcKeyPair;
-    return { ik, spk, pqc };
-  }
-
-  static encryptOnce(
-    aliceKeys: HybridKeyPair,
-    bobIkPub: string,
-    bobSpkPub: string,
-    bobPqcEk: string,
-    plaintext: Uint8Array
-  ): EncryptedPayload {
-    ensureWasm();
-
-    const raw = JSON.parse(
-      wasm_hybrid_session_initiate(
-        aliceKeys.ik,
-        aliceKeys.spk,
-        bobIkPub,
-        bobSpkPub,
-        bobPqcEk
-      )
-    ) as { session_json: string; mlkem_ct: string };
-
-    const session = WasmSession.from_json(raw.session_json);
-    const ciphertext = session.encrypt(plaintext);
-
-    return {
-      mlkemCt: raw.mlkem_ct,
-      aliceIkPub: aliceKeys.ik.public_key,
-      aliceSpkPub: aliceKeys.spk.public_key,
-      ciphertext,
-    };
-  }
-
-  static decryptOnce(
-    bobKeys: HybridKeyPair,
-    payload: EncryptedPayload
-  ): Uint8Array {
-    ensureWasm();
-
-    const session = wasm_hybrid_session_respond(
-      bobKeys.ik,
-      bobKeys.spk,
-      payload.aliceIkPub,
-      payload.aliceSpkPub,
-      bobKeys.pqc.dk,
-      payload.mlkemCt
-    );
-
-    return session.decrypt(payload.ciphertext);
-  }
-
-  static initiateSession(
-    aliceKeys: HybridKeyPair,
-    bobIkPub: string,
-    bobSpkPub: string,
-    bobPqcEk: string
-  ): { session: WasmSession; mlkemCt: string } {
-    ensureWasm();
-
-    const raw = JSON.parse(
-      wasm_hybrid_session_initiate(
-        aliceKeys.ik,
-        aliceKeys.spk,
-        bobIkPub,
-        bobSpkPub,
-        bobPqcEk
-      )
-    ) as { session_json: string; mlkem_ct: string };
-
-    return {
-      session: WasmSession.from_json(raw.session_json),
-      mlkemCt: raw.mlkem_ct,
-    };
-  }
-
-  static respondToSession(
-    bobKeys: HybridKeyPair,
-    aliceIkPub: string,
-    aliceSpkPub: string,
-    mlkemCt: string
-  ): WasmSession {
-    ensureWasm();
-    return wasm_hybrid_session_respond(
-      bobKeys.ik,
-      bobKeys.spk,
-      aliceIkPub,
-      aliceSpkPub,
-      bobKeys.pqc.dk,
-      mlkemCt
-    );
-  }
-}
-
-// ─── PayloadHasher ────────────────────────────────────────────────────────────
-
 export class PayloadHasher {
+  static readonly MAX_STRINGIFY_DEPTH = 64;
+
   static hash(payload: unknown): string {
     return PayloadHasher.hashPayload(payload);
   }
@@ -193,35 +172,12 @@ export class PayloadHasher {
     return PayloadHasher.verifyHash(payload, storedHash);
   }
 
-  private static readonly MAX_STRINGIFY_DEPTH = 64;
-
   static stableStringify(value: unknown): string {
-    const seen = new WeakSet();
-    const helper = (val: unknown, depth: number): string => {
-      if (depth > PayloadHasher.MAX_STRINGIFY_DEPTH) {
-        throw new PayloadTooDeepError(PayloadHasher.MAX_STRINGIFY_DEPTH);
-      }
-      if (val === null || typeof val !== 'object') {
-        return JSON.stringify(val);
-      }
-      if (seen.has(val)) {
-        throw new Error('Circular reference detected in payload');
-      }
-      seen.add(val);
-      if (Array.isArray(val)) {
-        return '[' + val.map(v => helper(v, depth + 1)).join(',') + ']';
-      }
-      const keys = Object.keys(val as Record<string, unknown>).sort();
-      const pairs = keys.map(k => JSON.stringify(k) + ': ' + helper((val as Record<string, unknown>)[k], depth + 1));
-      return '{' + pairs.join(',') + '}';
-    };
-    return helper(value, 0);
+    return stableStringify(value);
   }
 
   static hashPayload(payload: unknown): string {
-    return createHash('sha256')
-      .update(PayloadHasher.stableStringify(payload))
-      .digest('hex');
+    return createHash('sha256').update(stableStringify(payload)).digest('hex');
   }
 
   static verifyHash(payload: unknown, storedHash: string): boolean {
@@ -233,15 +189,13 @@ export class PayloadHasher {
 
   static signPayload(
     payload: unknown,
-    signerKeyPair: HybridKeyPair,
+    signerKeyPair: SecureIdentityKeyPair,
   ): { hash: string; signature: string } {
-    ensureWasm();
     const hash = PayloadHasher.hashPayload(payload);
-    const signature = wasm_ec_sign(
-      new TextEncoder().encode(hash),
-      signerKeyPair.ik,
-    );
-    return { hash, signature };
+    return {
+      hash,
+      signature: ed25519Sign(Buffer.from(hash, 'utf8'), signerKeyPair),
+    };
   }
 
   static verifySignature(
@@ -250,19 +204,17 @@ export class PayloadHasher {
     signature: string,
     signerPublicKey: string,
   ): boolean {
-    ensureWasm();
     const computedHash = PayloadHasher.hashPayload(payload);
-
-    const hashBytes = Buffer.from(computedHash, 'hex');
-    const storedHashBytes = Buffer.from(hash, 'hex');
-    
-    if (hashBytes.length !== storedHashBytes.length) return false;
-    if (!timingSafeEqual(hashBytes, storedHashBytes)) return false;
-    
-    return wasm_ec_verify(
-      new TextEncoder().encode(hash),
-      signature,
-      signerPublicKey,
+    const computed = Buffer.from(computedHash);
+    const expected = Buffer.from(hash);
+    if (computed.length !== expected.length || !timingSafeEqual(computed, expected)) {
+      return false;
+    }
+    return verify(
+      null,
+      Buffer.from(hash, 'utf8'),
+      importPublicKey(signerPublicKey, 'ed25519'),
+      fromBase64Url(signature),
     );
   }
 
@@ -274,256 +226,421 @@ export class PayloadHasher {
     return PayloadHasher.verifyHash(payload, storedHash);
   }
 }
-// ─── StvorTransportManager ───────────────────────────────────────────────────
+
+function publicIdentity(identity: SecureIdentityKeyPair): SecureIdentityPublic {
+  return {
+    agentId: identity.agentId,
+    signingPublicKey: identity.signingPublicKey,
+    encryptionPublicKey: identity.encryptionPublicKey,
+    fingerprint: identity.fingerprint,
+  };
+}
+
+export function ed25519Sign(message: Uint8Array, keyPair: Pick<SecureIdentityKeyPair, 'signingPrivateKey'> | { private_key: string }): string {
+  const privateKey = 'signingPrivateKey' in keyPair ? keyPair.signingPrivateKey : keyPair.private_key;
+  const signature = sign(null, message, importPrivateKey(privateKey, 'ed25519'));
+  return toBase64Url(signature);
+}
+
+export function ed25519Verify(
+  message: Uint8Array,
+  signature: string,
+  publicKey: string | { public_key: string },
+): boolean {
+  const key = typeof publicKey === 'string' ? publicKey : publicKey.public_key;
+  return verify(null, message, importPublicKey(key, 'ed25519'), fromBase64Url(signature));
+}
+
+function deriveAgentId(signingPublicKey: string): string {
+  return `agent-${createHash('sha256').update(signingPublicKey).digest('hex')}`;
+}
+
+function deriveFingerprint(signingPublicKey: string, encryptionPublicKey: string): string {
+  return createHash('sha256')
+    .update(`${PROTOCOL_VERSION}:${signingPublicKey}:${encryptionPublicKey}`)
+    .digest('hex');
+}
+
+function deriveSessionId(senderId: string, recipientId: string, ephemeralPublicKey: string, recipientPublicKey: string): string {
+  return createHash('sha256')
+    .update(`${PROTOCOL_VERSION}:${senderId}:${recipientId}:${ephemeralPublicKey}:${recipientPublicKey}`)
+    .digest('hex');
+}
+
+function deriveAeadKey(sharedSecret: Buffer, sessionId: string, aad: string): Buffer {
+  const key = hkdfSync('sha256', sharedSecret, Buffer.from(sessionId, 'utf8'), Buffer.from(aad, 'utf8'), 32);
+  return Buffer.from(key);
+}
+
+function envelopeSigningInput(envelope: Omit<SecureEnvelope, 'signature'>): Buffer {
+  return Buffer.from(stableStringify(envelope), 'utf8');
+}
+
+function verifyPublicIdentity(identity: SecureIdentityPublic): void {
+  const expectedAgentId = deriveAgentId(identity.signingPublicKey);
+  if (identity.agentId !== expectedAgentId) {
+    throw new Error(`Agent ID does not match signing key fingerprint for ${identity.agentId}`);
+  }
+  const expectedFingerprint = deriveFingerprint(identity.signingPublicKey, identity.encryptionPublicKey);
+  if (identity.fingerprint !== expectedFingerprint) {
+    throw new Error(`Identity fingerprint does not match key material for ${identity.agentId}`);
+  }
+}
+
+export class SecureAgentTransport {
+  private static replayState = new Map<string, SessionReplayState>();
+
+  static readonly protocolVersion = PROTOCOL_VERSION;
+  static readonly algorithm = ALGORITHM;
+
+  static generateKeyPair(): SecureIdentityKeyPair {
+    const signing = generateKeyPairSync('ed25519');
+    const encryption = generateKeyPairSync('x25519');
+    const signingPublicKey = exportPublicKey(signing.publicKey);
+    const encryptionPublicKey = exportPublicKey(encryption.publicKey);
+    const agentId = deriveAgentId(signingPublicKey);
+    return {
+      agentId,
+      signingPublicKey,
+      signingPrivateKey: exportPrivateKey(signing.privateKey),
+      encryptionPublicKey,
+      encryptionPrivateKey: exportPrivateKey(encryption.privateKey),
+      fingerprint: deriveFingerprint(signingPublicKey, encryptionPublicKey),
+      ik: { public_key: signingPublicKey, private_key: exportPrivateKey(signing.privateKey) },
+      spk: { public_key: encryptionPublicKey, private_key: exportPrivateKey(encryption.privateKey) },
+    };
+  }
+
+  static getPublicIdentity(identity: SecureIdentityKeyPair): SecureIdentityPublic {
+    return publicIdentity(identity);
+  }
+
+  static resetReplayStateForTests(): void {
+    SecureAgentTransport.replayState.clear();
+  }
+
+  static encryptOnce(
+    sender: SecureIdentityKeyPair,
+    recipientOrIkPub: SecureIdentityPublic | string,
+    recipientSpkOrPlaintext: string | Uint8Array,
+    recipientPqcOrMetadata?: string | Record<string, unknown>,
+    plaintextMaybe?: Uint8Array,
+  ): SecureEnvelope {
+    const legacyRecipient = typeof recipientOrIkPub === 'string';
+    const recipient: SecureIdentityPublic = legacyRecipient
+      ? {
+          agentId: deriveAgentId(recipientOrIkPub),
+          signingPublicKey: recipientOrIkPub,
+          encryptionPublicKey: typeof recipientSpkOrPlaintext === 'string'
+            ? recipientSpkOrPlaintext
+            : sender.encryptionPublicKey,
+          fingerprint: deriveFingerprint(
+            recipientOrIkPub,
+            typeof recipientSpkOrPlaintext === 'string' ? recipientSpkOrPlaintext : sender.encryptionPublicKey,
+          ),
+        }
+      : recipientOrIkPub;
+    const plaintext = legacyRecipient
+      ? (plaintextMaybe ?? new Uint8Array())
+      : (recipientSpkOrPlaintext as Uint8Array);
+    const metadata = legacyRecipient
+      ? (typeof recipientPqcOrMetadata === 'object' && recipientPqcOrMetadata !== null ? recipientPqcOrMetadata : {})
+      : (typeof recipientPqcOrMetadata === 'object' && recipientPqcOrMetadata !== null ? recipientPqcOrMetadata : {});
+    verifyPublicIdentity(recipient);
+    const ephemeral = generateKeyPairSync('x25519');
+    const ephemeralPublicKey = exportPublicKey(ephemeral.publicKey);
+    const sessionId = deriveSessionId(
+      sender.agentId,
+      recipient.agentId,
+      ephemeralPublicKey,
+      recipient.encryptionPublicKey,
+    );
+    const nonce = randomBytes(12);
+    const timestamp = Date.now();
+    const expiresAt = timestamp + SESSION_TTL_MS;
+    const aadObject = {
+      version: PROTOCOL_VERSION,
+      algorithm: ALGORITHM,
+      senderId: sender.agentId,
+      senderSigningPublicKey: sender.signingPublicKey,
+      senderEncryptionPublicKey: sender.encryptionPublicKey,
+      recipientId: recipient.agentId,
+      recipientSigningPublicKey: recipient.signingPublicKey,
+      recipientEncryptionPublicKey: recipient.encryptionPublicKey,
+      timestamp,
+      expiresAt,
+      sessionId,
+      nonce: toBase64Url(nonce),
+      metadata,
+    };
+    const aad = stableStringify(aadObject);
+    const sharedSecret = diffieHellman({
+      privateKey: ephemeral.privateKey,
+      publicKey: importPublicKey(recipient.encryptionPublicKey, 'x25519'),
+    });
+    const key = deriveAeadKey(sharedSecret, sessionId, aad);
+    const cipher = awaitlessCreateCipher(key, nonce, aad);
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const unsigned: Omit<SecureEnvelope, 'signature'> = {
+      version: PROTOCOL_VERSION,
+      algorithm: ALGORITHM,
+      senderId: sender.agentId,
+      senderSigningPublicKey: sender.signingPublicKey,
+      senderEncryptionPublicKey: sender.encryptionPublicKey,
+      recipientId: recipient.agentId,
+      recipientSigningPublicKey: recipient.signingPublicKey,
+      recipientEncryptionPublicKey: recipient.encryptionPublicKey,
+      timestamp,
+      expiresAt,
+      sessionId,
+      nonce: toBase64Url(nonce),
+      ephemeralPublicKey,
+      ciphertext: toBase64Url(ciphertext),
+      tag: toBase64Url(tag),
+      aad,
+      payloadHash: createHash('sha256').update(plaintext).digest('hex'),
+    };
+    const signature = sign(
+      null,
+      envelopeSigningInput(unsigned),
+      importPrivateKey(sender.signingPrivateKey, 'ed25519'),
+    );
+    return { ...unsigned, signature: toBase64Url(signature) };
+  }
+
+  static decryptOnce(
+    recipient: SecureIdentityKeyPair,
+    senderOrEnvelope: SecureIdentityPublic | SecureEnvelope,
+    envelopeOrOptions?: SecureEnvelope | { trackReplay?: boolean },
+    maybeOptions: { trackReplay?: boolean } = {},
+  ): Uint8Array {
+    const sender: SecureIdentityPublic = 'version' in senderOrEnvelope
+      ? {
+          agentId: senderOrEnvelope.senderId,
+          signingPublicKey: senderOrEnvelope.senderSigningPublicKey,
+          encryptionPublicKey: senderOrEnvelope.senderEncryptionPublicKey,
+          fingerprint: deriveFingerprint(
+            senderOrEnvelope.senderSigningPublicKey,
+            senderOrEnvelope.senderEncryptionPublicKey,
+          ),
+        }
+      : senderOrEnvelope;
+    const envelope = 'version' in senderOrEnvelope
+      ? senderOrEnvelope
+      : (envelopeOrOptions as SecureEnvelope);
+    const options = 'version' in senderOrEnvelope
+      ? (envelopeOrOptions as { trackReplay?: boolean } | undefined) ?? {}
+      : maybeOptions;
+    verifyPublicIdentity(sender);
+    if (envelope.version !== PROTOCOL_VERSION) {
+      throw new SecureTransportError(`Unsupported protocol version: ${envelope.version}`, recipient.agentId, envelope.sessionId, Date.now());
+    }
+    if (envelope.algorithm !== ALGORITHM) {
+      throw new SecureTransportError(`Unsupported algorithm: ${envelope.algorithm}`, recipient.agentId, envelope.sessionId, Date.now());
+    }
+    if (envelope.senderId !== sender.agentId || envelope.recipientId !== recipient.agentId) {
+      throw new SecureTransportError('Envelope sender or recipient does not match verified identities', recipient.agentId, envelope.sessionId, Date.now());
+    }
+    const expectedSessionId = deriveSessionId(
+      envelope.senderId,
+      envelope.recipientId,
+      envelope.ephemeralPublicKey,
+      envelope.recipientEncryptionPublicKey,
+    );
+    if (envelope.sessionId !== expectedSessionId) {
+      throw new SecureTransportError('Session ID does not match envelope key material', recipient.agentId, envelope.sessionId, Date.now());
+    }
+    const now = Date.now();
+    if (Math.abs(now - envelope.timestamp) > REPLAY_WINDOW_MS || now > envelope.expiresAt) {
+      throw new SecureTransportError('Envelope timestamp is outside the allowed replay window', recipient.agentId, envelope.sessionId, now);
+    }
+    const unsigned = { ...envelope };
+    delete (unsigned as Partial<SecureEnvelope>).signature;
+    const signatureOk = verify(
+      null,
+      envelopeSigningInput(unsigned as Omit<SecureEnvelope, 'signature'>),
+      importPublicKey(sender.signingPublicKey, 'ed25519'),
+      fromBase64Url(envelope.signature),
+    );
+    if (!signatureOk) {
+      throw new SecureTransportError('Envelope signature verification failed', recipient.agentId, envelope.sessionId, now);
+    }
+    if (options.trackReplay !== false) {
+      SecureAgentTransport.trackReplay(envelope.sessionId, envelope.nonce, envelope.expiresAt);
+    }
+    const sharedSecret = diffieHellman({
+      privateKey: importPrivateKey(recipient.encryptionPrivateKey, 'x25519'),
+      publicKey: importPublicKey(envelope.ephemeralPublicKey, 'x25519'),
+    });
+    const key = deriveAeadKey(sharedSecret, envelope.sessionId, envelope.aad);
+    const decipher = awaitlessCreateDecipher(key, fromBase64Url(envelope.nonce), envelope.aad, fromBase64Url(envelope.tag));
+    const plaintext = Buffer.concat([
+      decipher.update(fromBase64Url(envelope.ciphertext)),
+      decipher.final(),
+    ]);
+    const payloadHash = createHash('sha256').update(plaintext).digest('hex');
+    if (payloadHash !== envelope.payloadHash) {
+      throw new SecureTransportError('Payload hash mismatch after decryption', recipient.agentId, envelope.sessionId, now);
+    }
+    return plaintext;
+  }
+
+  private static trackReplay(sessionId: string, nonce: string, expiresAt: number): void {
+    const now = Date.now();
+    const existing = SecureAgentTransport.replayState.get(sessionId);
+    if (existing && existing.expiresAt <= now) {
+      SecureAgentTransport.replayState.delete(sessionId);
+    }
+    const state = SecureAgentTransport.replayState.get(sessionId) ?? {
+      expiresAt,
+      seenNonces: new Set<string>(),
+      order: [],
+    };
+    if (state.seenNonces.has(nonce)) {
+      throw new SecureTransportError('Replay detected: nonce was already used for this session', sessionId, sessionId, now);
+    }
+    state.seenNonces.add(nonce);
+    state.order.push(nonce);
+    while (state.order.length > MAX_SEEN_NONCES_PER_SESSION) {
+      const evicted = state.order.shift();
+      if (evicted) state.seenNonces.delete(evicted);
+    }
+    state.expiresAt = Math.max(state.expiresAt, expiresAt);
+    SecureAgentTransport.replayState.set(sessionId, state);
+  }
+}
+
+function awaitlessCreateCipher(key: Buffer, nonce: Buffer, aad: string) {
+  const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(Buffer.from(aad, 'utf8'));
+  return cipher;
+}
+
+function awaitlessCreateDecipher(key: Buffer, nonce: Buffer, aad: string, tag: Buffer) {
+  const decipher = createDecipheriv('aes-256-gcm', key, nonce);
+  decipher.setAAD(Buffer.from(aad, 'utf8'));
+  decipher.setAuthTag(tag);
+  return decipher;
+}
+
+interface RuntimeMemoryLike {
+  agentId?: string;
+  logger?: {
+    info?: (message: string) => void;
+    warn?: (message: string) => void;
+    error?: (message: string) => void;
+  };
+}
 
 export class StvorTransportManager implements IStvorTransport {
-  private client: IStvorClient | null = null;
+  private client: { send: (message: IStvorMessage) => Promise<unknown> } | null = null;
   private relay: IRelay | null = null;
-  private agentId: string;
-  private readonly selfAgentId: string;
-  private appToken: string;
-  private relayUrl: string;
-  private keyPair: HybridKeyPair;
-  private messageHandlers: Array<(msg: IStvorMessage) => Promise<void>> = [];
-  private clientMessageHandler: ((msg: IStvorMessage) => Promise<void>) | null = null;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private messageBuffer: Map<string, IStvorMessage[]> = new Map();
-  private sessionCache: Map<string, IStvorSession> = new Map();
-  private peerPublicKeys: Map<string, HybridKeyPair> = new Map();
-  private isMockRelay = false;
+  private readonly agentId: string;
+  private readonly appToken: string;
+  private readonly relayUrl: string;
+  private readonly identity: SecureIdentityKeyPair;
+  private readonly peerIdentities = new Map<string, SecureIdentityPublic>();
+  private readonly sessionCache = new Map<string, IStvorSession>();
+  private readonly messageHandlers: Array<(msg: IStvorMessage) => Promise<void>> = [];
   private connected = false;
-  private static readonly MAX_BUFFER_PER_AGENT = 128;
-  private static readonly MAX_RETRIES = 3;
-  private static readonly BASE_RETRY_DELAY_MS = 1000;
-  private static readonly MAX_SESSION_CACHE_SIZE = 128;
-  private errorHandlers: Array<(err: Error, messageId: string, recipientId: string) => void> = [];
-  private stats = {
-    messagesReceived: 0,
-    messagesSent: 0,
-    encryptionOps: 0,
-  };
+  private stats = { messagesReceived: 0, messagesSent: 0, encryptionOps: 0 };
 
   constructor(config: {
     agentId: string;
     appToken: string;
     relayUrl: string;
+    runtime?: RuntimeMemoryLike;
   }) {
-    this.keyPair = this.initializeKeyPairSync();
-    this.agentId = config.agentId;
-    this.selfAgentId = new AgentIdentityService(this.keyPair).getAgentId();
+    this.identity = KeyStore.loadOrGenerateSync(() => SecureAgentTransport.generateKeyPair());
+    this.agentId = config.agentId || this.identity.agentId;
     this.appToken = config.appToken;
     this.relayUrl = config.relayUrl;
-
-    console.log(
-      `[StvorTransport] Initialized for agent: ${this.agentId} (self: ${this.selfAgentId}, relay: ${this.relayUrl})`,
-    );
+    this.runtime = config.runtime;
+    this.log('info', `[SecureTransport] Initialized for ${this.agentId}`);
   }
 
-  private initializeKeyPairSync(): HybridKeyPair {
-    ensureWasm();
-    return KeyStore.loadOrGenerateSync(() => HybridPQCTransport.generateKeyPair());
+  private readonly runtime?: RuntimeMemoryLike;
+
+  private log(level: 'info' | 'warn' | 'error', message: string): void {
+    const logger = this.runtime?.logger;
+    if (logger?.[level]) {
+      logger[level]?.(message);
+      return;
+    }
+    if (level === 'error') console.error(message);
+    if (level === 'warn') console.warn(message);
   }
 
   getAgentId(): string {
-    return this.selfAgentId;
+    return this.identity.agentId;
   }
 
   getPublicKey(): string {
-    return this.keyPair.ik.public_key;
+    return this.identity.signingPublicKey;
   }
 
-  getKeyPair(): HybridKeyPair {
-    return this.keyPair;
+  getKeyPair(): SecureIdentityKeyPair {
+    return this.identity;
   }
 
-  registerPeerPublicKey(agentId: string, keys: HybridKeyPair): void {
-    this.peerPublicKeys.set(agentId, keys);
+  getPublicIdentity(): SecureIdentityPublic {
+    return SecureAgentTransport.getPublicIdentity(this.identity);
+  }
+
+  registerPeerPublicKey(agentId: string, identity: SecureIdentityPublic | SecureIdentityKeyPair): void {
+    const publicPeer = 'signingPrivateKey' in identity
+      ? SecureAgentTransport.getPublicIdentity(identity)
+      : identity;
+    verifyPublicIdentity(publicPeer);
+    this.peerIdentities.set(agentId, publicPeer);
   }
 
   private shouldAllowMock(): boolean {
-    const allowMock = process.env.STVOR_ALLOW_MOCK;
-    return allowMock === 'true';
-  }
-
-  private getRelayEnvValue(): string | undefined {
-    const url = process.env.STVOR_RELAY_URL;
-    if (!url || url === 'mock') {
-      return undefined;
-    }
-    return url;
-  }
-
-  private enforceMockRelay(): void {
-    const production = isProductionMode();
-    const relayUrl = this.getRelayEnvValue();
-
-    if (production) {
-      if (!relayUrl) {
-        throw new Error(
-          '[Production] STVOR_RELAY_URL is required in production mode. Mock relay is disabled.',
-        );
-      }
-      assertWssUrl(relayUrl, 'STVOR_RELAY_URL');
-      return;
-    }
-
-    if (!relayUrl && !this.shouldAllowMock()) {
-      const isDev = process.env.NODE_ENV === 'development';
-      if (isDev) {
-        console.warn(
-          '[StvorTransport] WARNING: Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
-        );
-        return;
-      }
-      throw new Error(
-        'Production relay URL is not configured. Set STVOR_RELAY_URL or explicitly allow mock with STVOR_ALLOW_MOCK=true.',
-      );
-    }
+    return process.env.NODE_ENV === 'test' || process.env.STVOR_ALLOW_MOCK === 'true';
   }
 
   async connect(): Promise<void> {
-    const production = isProductionMode();
-
-    if (production) {
+    if (isProductionMode()) {
       requireProductionEnv('STVOR_RELAY_URL');
       assertWssUrl(this.relayUrl, 'STVOR_RELAY_URL');
-      console.log('[StvorTransport] Production mode: relay URL validated.');
     }
-
-    try {
-      console.log(`[StvorTransport] Connecting to relay: ${this.relayUrl || '[none]'}`);
-
-      const isMockRelay = !this.relayUrl || this.relayUrl === 'mock' || this.relayUrl === 'local';
-      const isWebSocketRelay =
-        this.relayUrl.startsWith('ws://') || this.relayUrl.startsWith('wss://');
-
-      if (isMockRelay || !isWebSocketRelay) {
-        if (!isMockRelay && !isWebSocketRelay) {
-          console.warn(
-            `[StvorTransport] Relay URL "${this.relayUrl}" is not a WebSocket endpoint; using mock relay.`,
-          );
-        }
-        this.enforceMockRelay();
-        console.warn(
-          '[StvorTransport] Using in-process mock relay. Set STVOR_RELAY_URL for production.',
-        );
-        await this.useMockRelayClient();
-        this.connected = true;
-        return;
+    const isMockRelay = !this.relayUrl || this.relayUrl === 'mock' || this.relayUrl === 'local';
+    const isWebSocketRelay = this.relayUrl.startsWith('ws://') || this.relayUrl.startsWith('wss://');
+    if (isMockRelay || !isWebSocketRelay) {
+      if (!this.shouldAllowMock()) {
+        throw new Error('Relay URL is not configured. Set STVOR_RELAY_URL or STVOR_ALLOW_MOCK=true for local tests.');
       }
-
-      const relay = new WebSocketRelay(this.relayUrl, this.appToken, this.agentId);
-      await relay.connect();
-      this.relay = relay;
-      this.isMockRelay = false;
-      this.connected = true;
+      const mockClient = new MockRelayClient(this.agentId);
+      await mockClient.connect();
+      mockClient.onMessage((message) => this.handleRelayMessage(message));
       this.client = {
-        send: async (message: IStvorMessage) => {
-          await relay.send(message.to, {
-            to: message.to,
-            payload: JSON.stringify(message),
-            messageId: message.id,
-          });
-          return { id: message.id };
-        },
+        send: async (message: IStvorMessage) => mockClient.send(message),
       };
-      relay.onMessage((message) => this.handleRelayMessage(message));
-      console.log(`[StvorTransport] Connected to production relay ${this.relayUrl}`);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('not configured')) {
-        throw error;
-      }
-      const allowMock = this.shouldAllowMock();
-      if (!allowMock) {
-        throw new Error(
-          `Transport connect failed: ${error instanceof Error ? error.message : String(error)}. Set STVOR_ALLOW_MOCK=true to allow mock fallback.`,
-        );
-      }
-console.warn(
-         `[StvorTransport] Transport connect failed: ${error instanceof Error ? error.message : String(error)}`,
-       );
-       await this.useMockRelayClient();
-       this.connected = true;
-     }
-   }
-
-  private handleRelayMessage(message: RelayMessage | IStvorMessage): void {
-    let parsed: IStvorMessage;
-    if ('payload' in message && typeof (message as RelayMessage).payload === 'string') {
-      const relayMsg = message as RelayMessage;
-      if (!relayMsg.payload) return;
-      try {
-        parsed = JSON.parse(relayMsg.payload) as IStvorMessage;
-      } catch {
-        const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
-        console.error(
-          `[PQC-Transport] Malformed relay payload agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()}`,
-        );
-        AuditLogger.log(
-          'TRANSPORT_DECRYPT_FAILURE',
-          { eventId, error: 'Malformed relay payload', agentId: this.agentId },
-          this.agentId,
-        );
-        return;
-      }
-    } else {
-      parsed = message as IStvorMessage;
+      this.connected = true;
+      return;
     }
-    void this.dispatchMessage(parsed);
-  }
-
-  private async dispatchMessage(message: IStvorMessage): Promise<void> {
-    this.stats.messagesReceived++;
-    for (const handler of this.messageHandlers) {
-      try {
-        await handler(message);
-      } catch (error) {
-        const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(
-          `[PQC-Transport] Handler error agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()} messageId=${message.id} error=${err.message}`,
-        );
-      }
-    }
-  }
-
-  private async useMockRelayClient(): Promise<void> {
-    const mockClient = new MockRelayClient(this.agentId);
-    await mockClient.connect();
-    mockClient.onMessage((message) => this.handleRelayMessage(message));
+    const relay = new WebSocketRelay(this.relayUrl, this.appToken, this.agentId);
+    await relay.connect();
+    relay.onMessage((message) => this.handleRelayMessage(message));
+    this.relay = relay;
     this.client = {
-      send: async (message: IStvorMessage) => {
-        await mockClient.send(message);
-        return { id: message.id };
-      },
+      send: async (message: IStvorMessage) => relay.send(message.to, {
+        to: message.to,
+        messageId: message.id,
+        payload: JSON.stringify(message),
+      }),
     };
-    this.isMockRelay = true;
-  }
-
-  private bufferMessage(recipientId: string, message: IStvorMessage): void {
-    const existing = this.messageBuffer.get(recipientId) ?? [];
-    if (existing.length >= StvorTransportManager.MAX_BUFFER_PER_AGENT) {
-      const removed = existing.shift();
-      if (removed) {
-        console.warn(
-          `[PQC-Transport] Buffer full for ${recipientId}, removed oldest message ${removed.id}`,
-        );
-      }
-    }
-    existing.push(message);
-    this.messageBuffer.set(recipientId, existing);
+    this.connected = true;
   }
 
   async disconnect(): Promise<void> {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-    this.client = null;
     this.relay?.disconnect();
     this.relay = null;
-    this.messageHandlers = [];
+    this.client = null;
+    this.connected = false;
     this.sessionCache.clear();
+    this.messageHandlers.length = 0;
   }
 
   async sendSecurePayload(
@@ -531,98 +648,74 @@ console.warn(
     jobId: string,
     messageType: 'job_prompt' | 'job_deliverable' | 'job_evaluation' | 'handshake',
     payload: Record<string, unknown>,
-    _responseTimeoutMs?: number,
   ): Promise<string> {
-    const messageId = `msg-${Date.now()}-${randomBytes(8).toString('hex')}`;
-
-    const recipientKeys = this.peerPublicKeys.get(recipientId);
-    if (!recipientKeys) {
-      throw new PqcEncryptionError(
-        `No public key available for recipient ${recipientId}. Register peer keys before sending.`,
-        this.agentId,
-        messageId,
-        Date.now(),
-      );
+    if (!this.connected || !this.client) {
+      throw new SecureTransportError('Transport is not connected', this.agentId, `send-${Date.now()}`, Date.now());
     }
-
-    const payloadHash = PayloadHasher.hashPayload(payload);
-    const plaintext = new TextEncoder().encode(JSON.stringify(payload));
-    const encrypted = HybridPQCTransport.encryptOnce(
-      this.keyPair,
-      recipientKeys.ik.public_key,
-      recipientKeys.spk.public_key,
-      recipientKeys.pqc.ek,
-      plaintext,
-    );
-
+    const recipient = this.peerIdentities.get(recipientId);
+    if (!recipient) {
+      throw new SecureTransportError(`No verified identity registered for recipient ${recipientId}`, this.agentId, `send-${Date.now()}`, Date.now());
+    }
+    const messageId = `msg-${Date.now()}-${randomBytes(8).toString('hex')}`;
+    const plaintext = Buffer.from(JSON.stringify(payload), 'utf8');
+    const envelope = SecureAgentTransport.encryptOnce(this.identity, recipient, plaintext, {
+      messageId,
+      jobId,
+      type: messageType,
+    });
     const message: IStvorMessage = {
       id: messageId,
       from: this.agentId,
       to: recipientId,
       timestamp: Date.now(),
       encrypted: true,
-      pqcEncrypted: true,
-      encryption: 'ML-KEM-768 + Double Ratchet + AES-256-GCM',
+      encryption: ALGORITHM,
+      sessionId: envelope.sessionId,
       content: {
         type: messageType,
         jobId,
-        data: encrypted.ciphertext,
+        data: envelope,
         encrypted: true,
-        pqcEncrypted: true,
-        encryption: 'ML-KEM-768 + Double Ratchet + AES-256-GCM',
-        mlkemCt: encrypted.mlkemCt,
-        aliceIkPub: encrypted.aliceIkPub,
-        aliceSpkPub: encrypted.aliceSpkPub,
+        encryption: ALGORITHM,
       },
       metadata: {
-        payloadHash,
-        version: 'pqc-v1',
+        payloadHash: PayloadHasher.hashPayload(payload),
+        encryptedPayloadHash: envelope.payloadHash,
+        version: PROTOCOL_VERSION,
       },
     };
-
-    this.stats.encryptionOps++;
-
-    if (this.client && 'send' in this.client) {
-      let lastError: Error | null = null;
-      for (let attempt = 0; attempt < StvorTransportManager.MAX_RETRIES; attempt++) {
-        try {
-          await (this.client as unknown as { send: (m: IStvorMessage) => Promise<unknown> }).send(message);
-          this.stats.messagesSent++;
-          return messageId;
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error));
-          if (attempt < StvorTransportManager.MAX_RETRIES - 1) {
-            const delay = StvorTransportManager.BASE_RETRY_DELAY_MS * 2 ** attempt;
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
+    const MAX_RETRIES = 3;
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        await this.client.send(message);
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < MAX_RETRIES - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100 * Math.pow(2, attempt)));
         }
       }
-      const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
-      console.error(
-        `[PQC-Transport] All retries failed agent=${this.agentId} eventId=${eventId} timestamp=${new Date().toISOString()} messageId=${messageId} error=${lastError?.message}`,
-      );
-      AuditLogger.log(
-        'TRANSPORT_SEND_FAILURE',
-        {
-          eventId,
-          messageId,
-          recipientId,
-          error: lastError?.message ?? 'Unknown send failure',
-        },
-        this.agentId,
-        jobId,
-      );
-      for (const handler of this.errorHandlers) {
-        handler(lastError ?? new Error('Unknown send failure'), messageId, recipientId);
-      }
-      this.bufferMessage(recipientId, message);
     }
-
+    if (lastError) {
+      AuditLogger.log('TRANSPORT_SEND_FAILURE', { error: lastError.message }, this.agentId, jobId);
+      throw lastError;
+    }
     this.stats.messagesSent++;
+    this.stats.encryptionOps++;
+    this.sessionCache.set(recipientId, {
+      sessionId: envelope.sessionId,
+      agentA: this.agentId,
+      agentB: recipientId,
+      encryptionKeyCount: 1,
+      createdAt: envelope.timestamp,
+      expiresAt: envelope.expiresAt,
+    });
     return messageId;
   }
 
-  async receiveSecureMessage(_timeoutMs?: number): Promise<IStvorMessage | null> {
+  async receiveSecureMessage(): Promise<IStvorMessage | null> {
     throw new NotImplementedError('receiveSecureMessage');
   }
 
@@ -630,22 +723,13 @@ console.warn(
     this.messageHandlers.push(callback);
   }
 
-  onError(handler: (err: Error, messageId: string, recipientId: string) => void): void {
-    this.errorHandlers.push(handler);
-  }
-
-  async getSessionStatus(_agentId: string): Promise<IStvorSession | null> {
-    throw new NotImplementedError('getSessionStatus');
+  async getSessionStatus(agentId: string): Promise<IStvorSession | null> {
+    return this.sessionCache.get(agentId) ?? null;
   }
 
   getSession(agentId: string): { encryptionActive: boolean } | null {
     const session = this.sessionCache.get(agentId);
-    if (!session) return null;
-    const now = Date.now();
-    if (session.expiresAt < now) {
-      this.sessionCache.delete(agentId);
-      return null;
-    }
+    if (!session || session.expiresAt < Date.now()) return null;
     return { encryptionActive: true };
   }
 
@@ -672,18 +756,77 @@ console.warn(
   }
 
   injectMockMessage(message: IStvorMessage): void {
-    setImmediate(async () => {
-      for (const handler of this.messageHandlers) {
-        try {
-          await handler(message);
-        } catch {
-          // ignore handler errors
-        }
-      }
+    setImmediate(() => {
+      void this.dispatchMessage(message);
     });
+  }
+
+  private handleRelayMessage(message: RelayMessage | IStvorMessage): void {
+    const dispatch = (msg: IStvorMessage): void => {
+      void this.dispatchMessage(msg).catch((err) => {
+        this.log('error', `[SecureTransport] Dispatch error: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    };
+    if ('payload' in message && typeof message.payload === 'string') {
+      try {
+        dispatch(JSON.parse(message.payload) as IStvorMessage);
+      } catch (error) {
+        this.log('error', `[SecureTransport] Malformed relay payload: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return;
+    }
+    dispatch(message as IStvorMessage);
+  }
+
+  private async dispatchMessage(message: IStvorMessage): Promise<void> {
+    this.stats.messagesReceived++;
+    let delivered = message;
+    if (message.encrypted || message.content.encrypted) {
+      const sender = this.peerIdentities.get(message.from);
+      if (!sender) {
+        this.log('warn', `[SecureTransport] Message from unregistered sender ${message.from} — dropped`);
+        return;
+      }
+      const envelope = message.content.data as SecureEnvelope;
+      try {
+        const plaintext = SecureAgentTransport.decryptOnce(this.identity, sender, envelope);
+        delivered = {
+          ...message,
+          content: {
+            ...message.content,
+            data: JSON.parse(Buffer.from(plaintext).toString('utf8')) as unknown,
+            encrypted: false,
+            decrypted: true,
+          },
+        };
+        this.sessionCache.set(message.from, {
+          sessionId: envelope.sessionId,
+          agentA: message.from,
+          agentB: this.agentId,
+          encryptionKeyCount: 1,
+          createdAt: envelope.timestamp,
+          expiresAt: envelope.expiresAt,
+        });
+      } catch (error) {
+        const eventId = `evt-${Date.now()}-${randomBytes(4).toString('hex')}`;
+        AuditLogger.log(
+          'TRANSPORT_DECRYPT_FAILURE',
+          { eventId, messageId: message.id, error: error instanceof Error ? error.message : String(error) },
+          this.agentId,
+          message.content.jobId,
+        );
+        throw error;
+      }
+    }
+    for (const handler of this.messageHandlers) {
+      await handler(delivered);
+    }
   }
 }
 
-interface IStvorClient {
-  send: (message: IStvorMessage) => Promise<unknown>;
-}
+/** @deprecated use SecureAgentTransport */
+export const HybridPQCTransport = SecureAgentTransport;
+/** @deprecated use SecureIdentityKeyPair */
+export type HybridKeyPair = SecureIdentityKeyPair;
+/** @deprecated use SecureEnvelope */
+export type EncryptedPayload = SecureEnvelope;

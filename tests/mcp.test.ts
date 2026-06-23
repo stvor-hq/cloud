@@ -5,7 +5,7 @@ describe('MCP server', () => {
   it('has correct server info', () => {
     expect(MCP_SERVER_INFO.name).toBe('stvor-ai-security');
     expect(MCP_SERVER_INFO.version).toBeDefined();
-    expect(MCP_SERVER_INFO.description).toContain('ML-KEM-768');
+    expect(MCP_SERVER_INFO.description).toContain('Ed25519');
   });
 
   it('exposes 5 tools', () => {

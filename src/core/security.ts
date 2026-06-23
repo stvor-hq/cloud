@@ -6,8 +6,6 @@
  */
 
 import { Buffer } from 'buffer';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 16_384;
 const LLM_INJECTION_PATTERNS = [
@@ -47,40 +45,8 @@ export interface IRateLimitStore {
   set(agentId: string, value: { count: number; resetTime: number }): void;
 }
 
-class FileRateLimitStore implements IRateLimitStore {
-  private readonly filePath: string;
-  private cache = new Map<string, { count: number; resetTime: number }>();
-  private dirty = false;
-
-  constructor(filePath: string) {
-    this.filePath = filePath;
-    this.load();
-  }
-
-  private load(): void {
-    try {
-      const data = readFileSync(this.filePath, 'utf8');
-      const entries = JSON.parse(data) as Record<string, { count: number; resetTime: number }>;
-      this.cache = new Map(Object.entries(entries));
-      const now = Date.now();
-      for (const [key, value] of this.cache.entries()) {
-        if (now > value.resetTime) {
-          this.cache.delete(key);
-        }
-      }
-    } catch {
-      this.cache = new Map();
-    }
-  }
-
-  private persist(): void {
-    if (!this.dirty) return;
-    const dir = join(this.filePath, '..');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const data = JSON.stringify(Object.fromEntries(this.cache.entries()));
-    writeFileSync(this.filePath, data, { mode: 0o600 });
-    this.dirty = false;
-  }
+class InMemoryRateLimitStore implements IRateLimitStore {
+  private readonly cache = new Map<string, { count: number; resetTime: number }>();
 
   get(agentId: string): { count: number; resetTime: number } | undefined {
     return this.cache.get(agentId);
@@ -88,23 +54,10 @@ class FileRateLimitStore implements IRateLimitStore {
 
   set(agentId: string, value: { count: number; resetTime: number }): void {
     this.cache.set(agentId, value);
-    this.dirty = true;
-    this.persist();
   }
 }
 
-function getRateLimitStore(): IRateLimitStore {
-  const isTest = process.env.NODE_ENV === 'test';
-  if (isTest) {
-    return new Map() as unknown as IRateLimitStore;
-  }
-  const path = process.env.STVOR_RATE_LIMIT_STORE || './data/rate-limits.json';
-  const store = new FileRateLimitStore(path);
-  console.log('[SecurityGuard] Persistent rate-limit store enabled (file-based). For clusters, use Redis.');
-  return store;
-}
-
-const rateLimitStore = getRateLimitStore();
+const rateLimitStore: IRateLimitStore = new InMemoryRateLimitStore();
 
 export class SecurityGuard {
   static readonly MAX_PAYLOAD_BYTES = DEFAULT_MAX_PAYLOAD_BYTES;

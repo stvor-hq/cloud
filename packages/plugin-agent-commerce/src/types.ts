@@ -32,7 +32,7 @@ export interface IErc8183Job {
   metadata: Record<string, unknown>;
 }
 
-export interface IPqcReputationGateHook {
+export interface IReputationGateHook {
   canFundJob(agentId: string, amount: bigint): Promise<boolean>;
   getReputation(agentId: string): Promise<number>;
 }
@@ -47,7 +47,7 @@ export interface IJobStore {
 export interface ICommerceContext {
   runtime: unknown;
   jobStore: IJobStore;
-  reputationGate: IPqcReputationGateHook;
+  reputationGate: IReputationGateHook;
 }
 
 export enum EvaluationDecision {

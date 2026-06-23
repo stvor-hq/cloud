@@ -1,6 +1,21 @@
 # Stvor AI Security
 
-Production-ready PQC transport layer for autonomous agents. Prevents credential theft from quantum cryptanalysis and prompt injection attacks.
+Authenticated agent-to-agent commerce node with ElizaOS integration and end-to-end secure transport.
+
+## What it provides
+
+- Ed25519 identity keys for agent authentication
+- X25519 + HKDF-SHA256 + AES-256-GCM transport encryption
+- Replay protection with timestamp windows and nonce tracking
+- SHA-256 payload attestation for job and deliverable state
+- ElizaOS plugin for commerce flow, policy checks, and runtime memory integration
+
+## What it does not claim
+
+- No post-quantum cryptography
+- No ML-KEM / Kyber
+- No Double Ratchet
+- No prompt-injection prevention, only heuristics
 
 ## Install
 
@@ -12,116 +27,21 @@ Production-ready PQC transport layer for autonomous agents. Prevents credential 
 }
 ```
 
-```json
-{
-  "name": "SecureCommerceAgent",
-  "plugins": ["@elizaos/plugin-agent-commerce"],
-  "settings": {
-    "STVOR_RELAY_URL": "wss://<your-railway-url>",
-    "STVOR_APP_TOKEN": "<your-railway-token>",
-    "STVOR_STRICT_MODE": "true"
-  }
-}
-```
+## Plugin
 
-## What the plugin does
+Use `@elizaos/plugin-agent-commerce` when you want the ElizaOS commerce policy layer.
+It provides job flow, prompt-injection heuristics, and SHA-256 attestation.
 
-| Action | Description |
-|--------|-------------|
-| CREATE_SECURE_JOB | Create ERC-8183 job with PQC-secured transport |
-| FUND_SECURE_JOB | Fund job and trigger encrypted task delivery |
-| SUBMIT_DELIVERABLE | Submit encrypted deliverable for funded job |
-| JOB_STATUS | Check status of commerce job |
+## Runtime notes
 
-2 evaluators (SECURITY_GUARD, COMMERCE_TRACKER) and 1 provider (COMMERCE_CONTEXT) are registered automatically.
-
-## Cryptography
-
-| Layer | Algorithm |
-|-------|-----------|
-| Key exchange | P-256 X3DH + ML-KEM-768 |
-| Sessions | Double Ratchet |
-| Symmetric | AES-256-GCM |
-| Ledger | SHA-256 attestation only |
-
-Hybrid design: quantum-resistant KEM + classical key exchange + forward-secret sessions + AEAD payloads.
-
-An attacker capturing ciphertext today cannot recover plaintext even with a future quantum computer.
-
-## Implementation status
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| ML-KEM-768 + Double Ratchet | ✅ | @stvor/web3 Rust/WASM (published on npm), 53 NIST vectors |
-| Key storage | ✅ | AES-256-GCM, scrypt KDF |
-| SecurityGuard | ✅ | 4 attack categories, rate limiting, replay protection |
-| Audit log | ✅ | SHA-256 hash-chain, tamper-detectable |
-| ERC-8183 state machine | ✅ | 6 states: OPEN→FUNDED→SUBMITTED→COMPLETE/REFUND/ABORTED |
-| AEAD metadata binding | ✅ | Payload hashes bound to job transitions |
-| Per-agent challenge-response auth | ✅ | P-256 signed challenges with expiry |
-| Rate limiting on relay and API | ✅ | File-backed in dev, Redis-ready |
-| ElizaOS plugin | ✅ | PR-ready npm package |
-| Production relay | ✅ | wss://<your-railway-url> |
-| On-chain contract | ⚠️ | AgenticCommerce.sol compiled, testnet deployment pending |
-| x402 blockchain signing | 🔜 | Protocol layer done, EIP-712 pending |
-
-## Environment variables
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| STVOR_RELAY_URL | WebSocket relay endpoint | undefined |
-| STVOR_APP_TOKEN | Relay authentication token | undefined |
-| STVOR_STRICT_MODE | Enforce PQC encryption | false |
-| STVOR_ALLOW_MOCK | Allow mock relay fallback | false |
-| STVOR_KEY_PASSWORD | Key encryption password | generated |
-| STVOR_PRODUCTION_MODE | Enable enterprise production mode | false |
-| STVOR_API_KEY | API server authentication key | must be set explicitly |
-| STVOR_CHALLENGE_STORE | Path to persistent challenge store | ./data/challenges.json |
-| STVOR_RATE_LIMIT_STORE | Path to persistent rate-limit store | ./data/rate-limits.json |
-| RELAY_TOKEN | Relay server authentication token | stvor-relay-dev-token |
-
-## Enterprise Production Mode
-
-Enable `STVOR_PRODUCTION_MODE=true` to activate hardened production defaults:
-
-- **Transport**: `STVOR_RELAY_URL` must be set and use `wss://`. Mock relay and `STVOR_ALLOW_MOCK` are disabled.
-- **API Key**: `STVOR_API_KEY` is required. There is no default; it must be set explicitly.
-- **Key Password**: `STVOR_KEY_PASSWORD` is required. Automatic password generation (`.stvor_key_pass`) is disabled.
-- **Persistence**: Agent challenges and rate-limit state are stored on disk by default. For multi-instance deployments, replace with Redis (configurable via `STVOR_CHALLENGE_STORE` and `STVOR_RATE_LIMIT_STORE`).
-- **Relay**: `RELAY_TOKEN` is required when running the relay server in production.
-
-Example production `.env`:
-```env
-STVOR_PRODUCTION_MODE=true
-STVOR_RELAY_URL=wss://relay.your-domain.com
-STVOR_APP_TOKEN=<your-relay-token>
-STVOR_API_KEY=<your-strong-api-key>
-STVOR_KEY_PASSWORD=<your-strong-key-password>
-RELAY_TOKEN=<your-relay-token>
-```
-
-## Self-hosted relay
-
-```bash
-bun start:relay
-curl http://localhost:4444/health
-```
-
-Deploy to Railway free tier — railway.json included.
+- The transport rejects malformed identity metadata and replayed envelopes.
+- Relay compromise does not expose payload plaintext.
+- Key material is stored locally with authenticated encryption.
 
 ## Development
 
 ```bash
 bun install
-bun test        # 89 tests
 bun run type-check
-bun start:demo
+bun test
 ```
-
-## Tests
-
-96 tests across 15 files, 0 failures, 267 encryptions/sec.
-
-## License
-
-Apache 2.0

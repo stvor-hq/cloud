@@ -73,7 +73,6 @@ export function initializeSettings(): INodeSettings {
     port: parseInt(process.env.STVOR_PORT || '8080', 10),
     logLevel: (process.env.STVOR_LOG_LEVEL || 'info') as INodeSettings['logLevel'],
     dbPath: process.env.STVOR_DB_PATH || './stvor.db',
-    pqcEnabled: process.env.STVOR_PQC_ENABLED !== 'false',
     agentId: resolveAgentId(),
     relayUrl: process.env.STVOR_RELAY_URL || (production ? (() => { throw new Error('STVOR_RELAY_URL must be set'); })() : 'local'),
     apiKey: process.env.STVOR_API_KEY || (production ? (() => { throw new Error('STVOR_API_KEY must be set'); })() : (() => { throw new Error('STVOR_API_KEY must be set'); })()),
@@ -112,6 +111,5 @@ export function printSettings(settings: INodeSettings): void {
   console.log(`├─ Relay URL: ${settings.relayUrl}`);
   console.log(`├─ API Key: ${settings.apiKey ? '***' + settings.apiKey.slice(-4) : '(not set)'}`);
   console.log(`├─ App Token: ${settings.appToken ? '***' + settings.appToken.slice(-4) : '(not set)'}`);
-  console.log(`├─ Database: ${settings.dbPath}`);
-  console.log(`└─ PQC Enabled: ${settings.pqcEnabled ? '✓' : '✗'}`);
+  console.log(`└─ Database: ${settings.dbPath}`);
 }

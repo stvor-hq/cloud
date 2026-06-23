@@ -34,7 +34,6 @@ interface RelayMessage {
   to?: string;
   from?: string;
   payload?: string;
-  mlkemCt?: string;
   aliceIkPub?: string;
   aliceSpkPub?: string;
   timestamp?: number;
@@ -217,7 +216,6 @@ wss.on('connection', (ws, req) => {
           from: agentId,
           to: msg.to,
           payload: msg.payload,
-          mlkemCt: msg.mlkemCt,
           aliceIkPub: msg.aliceIkPub,
           aliceSpkPub: msg.aliceSpkPub,
           messageId: msg.messageId ?? randomBytes(8).toString('hex'),

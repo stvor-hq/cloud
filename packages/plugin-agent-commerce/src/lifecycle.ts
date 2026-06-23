@@ -3,6 +3,7 @@ import type { IStvorTransport, IStvorMessage } from './lib/pqc';
 import { PayloadHasher } from './lib/pqc';
 import { SecurityGuard } from './lib/security';
 import { ERC8183StateMachine } from './state-machine';
+import { getPluginLogger } from './lib/logger';
 
 export interface ICommerceEventListener {
   onJobCreated(job: IErc8183Job): Promise<void>;
@@ -14,9 +15,10 @@ export interface ICommerceEventListener {
 export class CommerceTransportBridge implements ICommerceEventListener {
   private readonly transport: IStvorTransport;
   private readonly context: ICommerceContext;
-  private readonly hasher: PayloadHasher;
+  private readonly hasher = new PayloadHasher();
   private readonly peerTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private readonly responseWindowMs: number;
+  private readonly log = getPluginLogger();
 
   constructor(
     transport: IStvorTransport,
@@ -25,7 +27,6 @@ export class CommerceTransportBridge implements ICommerceEventListener {
   ) {
     this.transport = transport;
     this.context = context;
-    this.hasher = new PayloadHasher();
     this.responseWindowMs = responseWindowMs;
 
     this.transport.onMessage(async (msg) => {
@@ -34,20 +35,21 @@ export class CommerceTransportBridge implements ICommerceEventListener {
   }
 
   async onJobCreated(job: IErc8183Job): Promise<void> {
-    console.log(
+    this.log.info(
       `[CommerceTransportBridge] Job created: ${job.jobId} (state: ${job.state})`,
     );
   }
 
   async onJobFunded(job: IErc8183Job): Promise<void> {
-    const taskPayload = {
+    // Exclude metadata to avoid reference aliasing: adding taskPayloadHash to
+    // job.metadata would otherwise mutate this object after the hash is computed.
+    const taskPayload: Record<string, unknown> = {
       jobId: job.jobId,
       taskDescription: job.taskDescription,
       requiredAmount: job.requiredAmount.toString(),
       clientAgent: job.clientAgent,
       fundedAmount: job.fundedAmount.toString(),
       deadline: Date.now() + 24 * 60 * 60 * 1000,
-      metadata: job.metadata,
     };
 
     const payloadHash = this.hasher.hashPayload(taskPayload);
@@ -61,7 +63,7 @@ export class CommerceTransportBridge implements ICommerceEventListener {
       taskPayload,
     );
 
-    console.log(
+    this.log.info(
       `[CommerceTransportBridge] Sent task specification to provider (msgId: ${msgId})`,
     );
 
@@ -74,7 +76,7 @@ export class CommerceTransportBridge implements ICommerceEventListener {
 
   async onJobSubmitted(job: IErc8183Job): Promise<void> {
     if (!job.deliverableHash) {
-      console.warn(`[CommerceTransportBridge] No deliverable hash recorded`);
+      this.log.warn(`[CommerceTransportBridge] No deliverable hash recorded`);
       return;
     }
 
@@ -109,13 +111,13 @@ export class CommerceTransportBridge implements ICommerceEventListener {
 
     if (job.completedAt) {
       const duration = job.completedAt - job.createdAt;
-      console.log(`[CommerceTransportBridge] Cycle time: ${duration}ms (${decision})`);
+      this.log.info(`[CommerceTransportBridge] Cycle time: ${duration}ms (${decision})`);
     }
   }
 
   private schedulePeerTimeout(
     jobId: string,
-    peerId: string,
+    _peerId: string,
     reason: string,
   ): void {
     this.clearPeerTimeout(jobId);
@@ -156,7 +158,7 @@ export class CommerceTransportBridge implements ICommerceEventListener {
 
     const job = await this.context.jobStore.get(msg.content.jobId);
     if (!job) {
-      console.warn(
+      this.log.warn(
         `[CommerceTransportBridge] Received message for unknown job ${msg.content.jobId}`,
       );
       return;

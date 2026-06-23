@@ -1,7 +1,5 @@
-import { HybridPQCTransport, PayloadHasher, ensureWasm } from './transport/pqc';
+import { SecureAgentTransport as HybridPQCTransport, PayloadHasher } from './transport/pqc';
 import { SecurityGuard } from './core/security';
-
-ensureWasm();
 
 const RED = '\x1b[31m';
 const GREEN = '\x1b[32m';
@@ -91,19 +89,19 @@ async function actTwo(): Promise<{
 
   const alice = timing(() => HybridPQCTransport.generateKeyPair());
   await printLine(
-    `  [Alice]  Generating P-256 IK + ML-KEM-768 keypair...   ${color('✓', GREEN)}  ${alice.elapsedMs}ms  (Rust/WASM)`,
+    `  [Alice]  Generating Ed25519 + X25519 keypair...   ${color('✓', GREEN)}  ${alice.elapsedMs}ms`,
   );
 
   const bob = timing(() => HybridPQCTransport.generateKeyPair());
   await printLine(
-    `  [Bob]    Generating P-256 IK + ML-KEM-768 keypair...   ${color('✓', GREEN)}  ${bob.elapsedMs}ms  (Rust/WASM)`,
+    `  [Bob]    Generating Ed25519 + X25519 keypair...   ${color('✓', GREEN)}  ${bob.elapsedMs}ms`,
   );
 
   await printBlock([
     '',
-    `  Hybrid identity: P-256 IK + SPK + ML-KEM-768`,
-    `  ML-KEM-768 encapsulation key: ${alice.value.pqc.ek.length} chars`,
-    '  Combined security: 2^128 classical ∧ quantum-resistant',
+    `  Hybrid identity: Ed25519 IK + X25519 SPK`,
+    `  Encryption key: ${alice.value.encryptionPublicKey.length} chars`,
+    '  Combined security: 2^128 classical (AES-256-GCM)',
     '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
   ]);
   await pauseAfterAct();
@@ -133,9 +131,7 @@ async function actThree(
   const taskBytes = new TextEncoder().encode(JSON.stringify(taskPayload));
   const encrypted = HybridPQCTransport.encryptOnce(
     bob,
-    bob.ik.public_key,
-    bob.spk.public_key,
-    bob.pqc.ek,
+    HybridPQCTransport.getPublicIdentity(bob),
     taskBytes,
   );
   const taskHash = PayloadHasher.hashPayload(taskPayload);
@@ -152,9 +148,9 @@ async function actThree(
     '  Encrypting task specification...',
     '  ┌──────────────────────────────────────────────────┐',
     '  │ PLAINTEXT:  "Analyze financial report Q4-2024..." │',
-    '  │             ↓  P-256 X3DH + ML-KEM-768          │',
-    '  │             ↓  HKDF-SHA256(P-256 ∥ ML-KEM)      │',
-    '  │             ↓  Double Ratchet init               │',
+    '  │             ↓  X25519 ECDH + HKDF-SHA256          │',
+    '  │             ↓  AES-256-GCM encryption             │',
+    '  │             ↓  HKDF session key derivation        │',
     '  │             ↓  AES-256-GCM encrypt               │',
     `  │ CIPHERTEXT: ${ciphertextPrefix}...  (${ciphertextSize} bytes; indistinguishable from random) │`,
     '  └─────────────────────────────────────────────┘',
@@ -264,7 +260,7 @@ async function actFive(
     '  ─────────────────────────────────────────────',
     `  TOTAL CYCLE TIME:  ${totalCycleTime}ms`,
     '  ENCRYPTION OPS:    3 (prompt → deliverable → evaluation)',
-    '  QUANTUM THREAT:    NEUTRALIZED (ML-KEM-768)',
+    '  TRANSPORT SECURITY: VERIFIED (AES-256-GCM)',
     '  PLAINTEXT ON WIRE: 0 bytes',
     '  ─────────────────────────────────────────────',
   ]);
@@ -315,7 +311,7 @@ async function runDemo(): Promise<void> {
   await actFive(job, start);
   await printFinale();
 
-  if (alice.ik.private_key.length === 0 || bob.pqc.ek.length === 0) {
+  if (alice.ik.private_key.length === 0 || bob.encryptionPublicKey.length === 0) {
     throw new Error('Key material was unexpectedly empty');
   }
 }

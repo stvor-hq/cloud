@@ -5,7 +5,7 @@
 export const MCP_TOOLS = [
   {
     name: 'create_secure_job',
-    description: 'Create a new ERC-8183 agentic commerce job with PQC-encrypted transport. Locks funds in escrow and delivers encrypted task spec to provider via ML-KEM-768.',
+    description: 'Create a new ERC-8183 agentic commerce job with authenticated end-to-end transport. Locks funds in escrow and delivers encrypted task specs to the provider.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -19,7 +19,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'fund_job',
-    description: 'Fund an ERC-8183 job. Triggers PQC-encrypted task delivery to provider.',
+    description: 'Fund an ERC-8183 job. Triggers encrypted task delivery to the provider.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -54,7 +54,7 @@ export const MCP_TOOLS = [
   },
   {
     name: 'get_transport_status',
-    description: 'Get PQC transport status: crypto algorithm, session count, relay connectivity.',
+    description: 'Get transport status: crypto algorithm, session count, relay connectivity.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -62,7 +62,7 @@ export const MCP_TOOLS = [
 export const MCP_SERVER_INFO = {
   name: 'stvor-ai-security',
   version: '1.0.0',
-  description: 'Post-quantum ERC-8183 agentic commerce — ML-KEM-768 + Double Ratchet + on-chain escrow',
+  description: 'Authenticated ERC-8183 agentic commerce — Ed25519 + X25519 + AES-256-GCM',
 };
 
 export async function handleMcpToolCall(
@@ -100,9 +100,8 @@ export async function handleMcpToolCall(
     }
     case 'get_transport_status': {
       return {
-        algorithm: 'ML-KEM-768 + P-256 X3DH + Double Ratchet + AES-256-GCM',
-        sdk: '@stvor/web3 (Rust/WASM)',
-        nistVerified: '53 ACVTS test vectors',
+        algorithm: 'Ed25519 + X25519 + HKDF-SHA256 + AES-256-GCM',
+        sdk: 'Node crypto',
         relay: process.env.STVOR_RELAY_URL ?? 'mock (in-process)',
       };
     }

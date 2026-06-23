@@ -1,10 +1,8 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
+import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, randomBytes, scryptSync } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { WasmKeyPair } from '@stvor/web3/wasm';
-import { ensureWasm } from './pqc.js';
 import { isProductionMode } from '../core/production.js';
-import type { HybridKeyPair } from './pqc.js';
+import type { SecureIdentityKeyPair } from './pqc.js';
 
 function getKeyDir(): string {
   return process.env.STVOR_KEY_DIR ?? './data/keys';
@@ -22,23 +20,43 @@ function deriveKey(password: string, salt: Buffer): Buffer {
   return scryptSync(password, salt, 32, { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
 }
 
-function serializeKeyPair(kp: HybridKeyPair): Record<string, string> {
+function serializeKeyPair(kp: SecureIdentityKeyPair): Record<string, string> {
   return {
-    ikPriv:  kp.ik.private_key,
-    ikPub:   kp.ik.public_key,
+    agentId: kp.agentId,
+    signingPublicKey: kp.signingPublicKey,
+    signingPrivateKey: kp.signingPrivateKey,
+    encryptionPublicKey: kp.encryptionPublicKey,
+    encryptionPrivateKey: kp.encryptionPrivateKey,
+    fingerprint: kp.fingerprint,
+    ikPriv: kp.ik.private_key,
+    ikPub: kp.ik.public_key,
     spkPriv: kp.spk.private_key,
-    spkPub:  kp.spk.public_key,
-    pqcEk:   kp.pqc.ek,
-    pqcDk:   kp.pqc.dk,
+    spkPub: kp.spk.public_key,
   };
 }
 
-function deserializeKeyPair(data: Record<string, string>): HybridKeyPair {
-  ensureWasm();
+function deserializeKeyPair(data: Record<string, string>): SecureIdentityKeyPair {
+  if (!data.signingPublicKey || !data.signingPrivateKey || !data.encryptionPublicKey || !data.encryptionPrivateKey) {
+    throw new Error('Unsupported legacy key format');
+  }
+  createPublicKey({ key: Buffer.from(data.signingPublicKey, 'base64url'), type: 'spki', format: 'der' });
+  createPrivateKey({ key: Buffer.from(data.signingPrivateKey, 'base64url'), type: 'pkcs8', format: 'der' });
+  createPublicKey({ key: Buffer.from(data.encryptionPublicKey, 'base64url'), type: 'spki', format: 'der' });
+  createPrivateKey({ key: Buffer.from(data.encryptionPrivateKey, 'base64url'), type: 'pkcs8', format: 'der' });
+  const agentId = data.agentId ?? `agent-${createHash('sha256').update(data.signingPublicKey).digest('hex')}`;
+  const fingerprint = data.fingerprint
+    ?? createHash('sha256')
+      .update(`sat-v1:${data.signingPublicKey}:${data.encryptionPublicKey}`)
+      .digest('hex');
   return {
-    ik:  WasmKeyPair.from_private_key(data.ikPriv),
-    spk: WasmKeyPair.from_private_key(data.spkPriv),
-    pqc: { ek: data.pqcEk, dk: data.pqcDk },
+    agentId,
+    signingPublicKey: data.signingPublicKey,
+    signingPrivateKey: data.signingPrivateKey,
+    encryptionPublicKey: data.encryptionPublicKey,
+    encryptionPrivateKey: data.encryptionPrivateKey,
+    fingerprint,
+    ik: { public_key: data.signingPublicKey, private_key: data.signingPrivateKey },
+    spk: { public_key: data.encryptionPublicKey, private_key: data.encryptionPrivateKey },
   };
 }
 
@@ -64,7 +82,7 @@ function generateAndStorePassword(): string {
 }
 
 export class KeyStore {
-  static save(keyPair: HybridKeyPair): void {
+  static save(keyPair: SecureIdentityKeyPair): void {
     const envPassword = process.env.STVOR_KEY_PASSWORD;
     const filePassword = getPasswordFromEnvOrFile();
     let pwd: string | undefined = envPassword ?? filePassword ?? undefined;
@@ -97,7 +115,7 @@ export class KeyStore {
     console.log(`[KeyStore] Keys saved to ${getKeyFile()}`);
   }
 
-  static load(): HybridKeyPair | null {
+  static load(): SecureIdentityKeyPair | null {
     if (!existsSync(getKeyFile())) return null;
 
     const password: string | undefined = process.env.STVOR_KEY_PASSWORD ?? getPasswordFromEnvOrFile() ?? undefined;
@@ -118,14 +136,24 @@ export class KeyStore {
     decipher.setAuthTag(tag);
 
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
-    return deserializeKeyPair(JSON.parse(plaintext) as Record<string, string>);
+    try {
+      return deserializeKeyPair(JSON.parse(plaintext) as Record<string, string>);
+    } catch (error) {
+      if (error instanceof Error && (
+        error.message.includes('Unsupported legacy key format') ||
+        error.message.includes('Failed to read asymmetric key')
+      )) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   static loadPassword(): string {
     return getPasswordFromEnvOrFile() ?? generateAndStorePassword();
   }
 
-  static loadOrGenerate(generateFn: () => HybridKeyPair): HybridKeyPair {
+  static loadOrGenerate(generateFn: () => SecureIdentityKeyPair): SecureIdentityKeyPair {
     const existing = KeyStore.load();
     if (existing) {
       console.log('[KeyStore] Loaded existing keypair from disk.');
@@ -142,7 +170,7 @@ export class KeyStore {
     return newKeyPair;
   }
 
-  static loadOrGenerateSync(generateFn: () => HybridKeyPair): HybridKeyPair {
+  static loadOrGenerateSync(generateFn: () => SecureIdentityKeyPair): SecureIdentityKeyPair {
     return KeyStore.loadOrGenerate(generateFn);
   }
 

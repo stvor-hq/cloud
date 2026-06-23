@@ -28,9 +28,9 @@ import {
 } from '../packages/plugin-agent-commerce/src';
 import { clearJobStore } from '../packages/plugin-agent-commerce/src/state-machine';
 import { createCommerceTransportBridge } from '../packages/plugin-agent-commerce/src/lifecycle';
-import { StvorTransportManager, PayloadHasher, HybridPQCTransport, type EncryptedPayload } from '../src/transport/pqc';
+import { StvorTransportManager, PayloadHasher, SecureAgentTransport } from '../src/transport/pqc';
 import type { IStvorMessage } from '../src/transport/interfaces';
-import type { IPqcReputationGateHook } from '../packages/plugin-agent-commerce/src';
+import type { IReputationGateHook } from '../packages/plugin-agent-commerce/src';
 import { ApiServer } from '../src/api/server';
 
 /**
@@ -47,7 +47,7 @@ class TestAgent {
     agentId: string,
     transport: StvorTransportManager,
     jobStore?: MemoryJobStore,
-    reputationGate?: IPqcReputationGateHook,
+    reputationGate?: IReputationGateHook,
   ) {
     this.agentId = agentId;
     this.transport = transport;
@@ -58,8 +58,10 @@ class TestAgent {
       port: 8080,
       logLevel: 'info' as const,
       dbPath: ':memory:',
-      pqcEnabled: true,
       agentId: this.agentId,
+      relayUrl: 'local',
+      apiKey: '',
+      appToken: '',
     };
 
     this.runtime = new AgentRuntime(settings);
@@ -126,6 +128,7 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
     sharedJobStore = new MemoryJobStore();
     const sharedReputationGate = {
       canFundJob: async (_agentId: string, _amount: bigint): Promise<boolean> => true,
+      getReputation: async (_agentId: string): Promise<number> => 100,
     };
 
     aliceTransport = new StvorTransportManager({
@@ -167,7 +170,7 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
     );
     expect(charlie.commerce.getContext().jobStore).toBe(sharedJobStore);
 
-    // Register peer public keys for PQC encryption
+    // Register peer public identities for end-to-end encryption
     aliceTransport.registerPeerPublicKey('bob_provider', bobTransport.getKeyPair());
     aliceTransport.registerPeerPublicKey('charlie_evaluator', charlieTransport.getKeyPair());
     bobTransport.registerPeerPublicKey('alice_client', aliceTransport.getKeyPair());
@@ -180,13 +183,16 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
     await aliceTransport.connect();
     await bobTransport.connect();
     await charlieTransport.connect();
-    console.log('✓ All agents connected with Signal Protocol + ML-KEM-768\n');
+    console.log('✓ All agents connected with Ed25519 + X25519 + AES-256-GCM\n');
   });
 
   beforeEach(async () => {
     if (sharedJobStore) {
       await clearJobStore(sharedJobStore);
     }
+    if (alice) alice.commerce.clearEventListeners();
+    if (bob) bob.commerce.clearEventListeners();
+    if (charlie) charlie.commerce.clearEventListeners();
   });
 
   afterEach(async () => {
@@ -333,15 +339,15 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
     console.log(`  Message ID: ${msgId}`);
     const hash = hasher.hashPayload(taskPayload);
     console.log(`  Payload Hash: ${hash.substring(0, 32)}...`);
-    console.log(`  Encryption: Signal Protocol + ML-KEM-768 (PQC)`);
+    console.log(`  Encryption: Ed25519 + X25519 + AES-256-GCM`);
 
     expect(msgId).toBeDefined();
     expect(hash).toBeDefined();
   });
 
-  it('should encrypt payload with PQC and recipient can decrypt it back', async () => {
+  it('should encrypt payload and verify round-trip decryption', async () => {
     const payload = {
-      secretData: 'quantum-resistant payload',
+      secretData: 'confidential payload',
       jobId: 'job-crypto-test',
       instructions: 'Encrypt and verify',
     };
@@ -363,20 +369,20 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
+    // Transport auto-decrypts before delivering to onMessage handlers
     expect(receivedContent).not.toBeNull();
-    expect(receivedContent!.data).not.toEqual(payload);
+    expect(receivedContent!.data).toEqual(payload);
 
+    // Verify direct encrypt/decrypt round-trip using raw API
+    const aliceKeys = aliceTransport.getKeyPair();
+    const bobPublic = bobTransport.getPublicIdentity();
     const bobKeys = bobTransport.getKeyPair();
-    const encryptedPayload: EncryptedPayload = {
-      mlkemCt: receivedContent!.mlkemCt as string,
-      aliceIkPub: receivedContent!.aliceIkPub as string,
-      aliceSpkPub: receivedContent!.aliceSpkPub as string,
-      ciphertext: receivedContent!.data as string,
-    };
-
-    const decrypted = HybridPQCTransport.decryptOnce(bobKeys, encryptedPayload);
-    const decryptedJson = new TextDecoder().decode(decrypted);
-    expect(JSON.parse(decryptedJson)).toEqual(payload);
+    const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+    const encrypted = SecureAgentTransport.encryptOnce(aliceKeys, bobPublic, plaintext);
+    expect(encrypted.version).toBe('sat-v1');
+    expect(encrypted.algorithm).toContain('AES-256-GCM');
+    const decrypted = SecureAgentTransport.decryptOnce(bobKeys, encrypted);
+    expect(JSON.parse(new TextDecoder().decode(decrypted))).toEqual(payload);
   });
 
   it('should abort job on malicious prompt injection to provider', async () => {
@@ -680,8 +686,10 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
       port: testPort,
       logLevel: 'info' as const,
       dbPath: ':memory:',
-      pqcEnabled: true,
       agentId: 'api_test_agent',
+      relayUrl: 'local',
+      apiKey: '',
+      appToken: '',
     };
     const runtime = new AgentRuntime(settings);
     const transport = new StvorTransportManager({
@@ -766,7 +774,7 @@ describe('Stvor AI Security E2E Commerce Flow', () => {
 
     console.log(`\n  Performance Metrics:`);
     console.log(`    Create:   ${createTime}ms`);
-    console.log(`    Fund:     ${fundTime}ms (with PQC encryption)`);
+    console.log(`    Fund:     ${fundTime}ms`);
     console.log(`    Submit:   ${submitTime}ms`);
     console.log(`    Evaluate: ${evalTime}ms`);
     console.log(`    ─────────────────`);
