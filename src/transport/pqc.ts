@@ -723,6 +723,11 @@ export class StvorTransportManager implements IStvorTransport {
     this.messageHandlers.push(callback);
   }
 
+  offMessage(callback: (msg: IStvorMessage) => Promise<void>): void {
+    const idx = this.messageHandlers.indexOf(callback);
+    if (idx !== -1) this.messageHandlers.splice(idx, 1);
+  }
+
   async getSessionStatus(agentId: string): Promise<IStvorSession | null> {
     return this.sessionCache.get(agentId) ?? null;
   }

@@ -45,7 +45,6 @@ export interface IJobStore {
 }
 
 export interface ICommerceContext {
-  runtime: unknown;
   jobStore: IJobStore;
   reputationGate: IReputationGateHook;
 }

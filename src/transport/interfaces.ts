@@ -123,6 +123,7 @@ export interface IStvorTransport {
    * Useful for event-driven agent architectures.
    */
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
+  offMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
 
 /**
     * Query the status of a crypto session between two agents.

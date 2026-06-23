@@ -81,13 +81,11 @@ export class AgentCommercePlugin implements ICommercePlugin {
   private readonly eventListeners: import('./lifecycle').ICommerceEventListener[] = [];
 
   constructor(
-    runtime: unknown,
     transport?: StvorTransportManager,
     context?: Partial<ICommerceContext>,
   ) {
     this.transport = transport ?? null;
     this.context = {
-      runtime,
       jobStore: context?.jobStore ?? new MemoryJobStore(),
       reputationGate: context?.reputationGate ?? new StubReputationGate(),
     };
@@ -205,9 +203,8 @@ export class AgentCommercePlugin implements ICommercePlugin {
 }
 
 export function createCommercePlugin(
-  runtime: unknown,
   transport?: StvorTransportManager,
   context?: Partial<ICommerceContext>,
 ): AgentCommercePlugin {
-  return new AgentCommercePlugin(runtime, transport, context);
+  return new AgentCommercePlugin(transport, context);
 }

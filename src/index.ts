@@ -275,7 +275,7 @@ async function main(): Promise<void> {
 
     // Phase 3: Register plugins
     console.log('[Bootstrap] Registering plugins...');
-    const commercePlugin = createCommercePlugin(runtime);
+    const commercePlugin = createCommercePlugin();
     runtime.registerPlugin('agent-commerce', commercePlugin);
 
     // Phase 4: Boot runtime

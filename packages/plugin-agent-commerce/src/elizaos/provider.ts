@@ -28,7 +28,7 @@ export const commerceProvider = {
     const summary = recent
       .map(
         (j) =>
-          `• ${j.jobId} | ${j.state} | provider: ${j.providerAgent} | "${j.taskDescription.slice(0, 40)}..."`,
+          `• ${j.jobId} | ${j.state} | provider: ${j.providerAgent} | "${(j.taskDescription ?? '').slice(0, 40)}..."`,
       )
       .join('\n');
 

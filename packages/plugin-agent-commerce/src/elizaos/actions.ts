@@ -47,7 +47,6 @@ export const createJobAction = {
 
     const { jobStore, reputationProvider } = getService(runtime);
     const ctx = {
-      runtime,
       jobStore,
       reputationGate: {
         canFundJob: (agentId: string, amount: bigint) =>
@@ -117,7 +116,6 @@ export const fundJobAction = {
 
     const { jobStore, reputationProvider } = getService(runtime);
     const ctx = {
-      runtime,
       jobStore,
       reputationGate: {
         canFundJob: (agentId: string, amount: bigint) =>
@@ -183,7 +181,6 @@ export const submitDeliverableAction = {
 
     const { jobStore, reputationProvider } = getService(runtime);
     const ctx = {
-      runtime,
       jobStore,
       reputationGate: {
         canFundJob: (agentId: string, amount: bigint) =>

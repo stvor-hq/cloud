@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync, rmSync } from 'fs';
 import { KeyStore } from '../src/transport/key-store';
-import { HybridPQCTransport } from '../src/transport/pqc';
+import { SecureAgentTransport } from '../src/transport/pqc';
 
 const TEST_KEY_DIR = './data/test-keys';
 const TEST_PASSWORD = 'test-password-123';
@@ -23,7 +23,7 @@ describe('KeyStore', () => {
   });
 
   it('saves and loads a keypair correctly', () => {
-    const original = HybridPQCTransport.generateKeyPair();
+    const original = SecureAgentTransport.generateKeyPair();
     KeyStore.save(original);
 
     const loaded = KeyStore.load();
@@ -34,7 +34,7 @@ describe('KeyStore', () => {
     }
 
     expect(loaded.ik.private_key).toBe(original.ik.private_key);
-    expect(loaded.pqc.ek).toBe(original.pqc.ek);
+    expect(loaded.spk.public_key).toBe(original.spk.public_key);
   });
 
   it('returns null from load when no key file exists', () => {
@@ -47,20 +47,20 @@ describe('KeyStore', () => {
 
   it('loadOrGenerate creates and persists a keypair on first run', () => {
     expect(KeyStore.exists()).toBe(false);
-    const kp = KeyStore.loadOrGenerate(() => HybridPQCTransport.generateKeyPair());
+    const kp = KeyStore.loadOrGenerate(() => SecureAgentTransport.generateKeyPair());
     expect(KeyStore.exists()).toBe(true);
     expect(typeof kp.ik.public_key).toBe('string');
     expect(kp.ik.public_key.length).toBeGreaterThan(0);
   });
 
   it('returns the same keypair on subsequent loadOrGenerate calls', () => {
-    const kp1 = KeyStore.loadOrGenerate(() => HybridPQCTransport.generateKeyPair());
-    const kp2 = KeyStore.loadOrGenerate(() => HybridPQCTransport.generateKeyPair());
+    const kp1 = KeyStore.loadOrGenerate(() => SecureAgentTransport.generateKeyPair());
+    const kp2 = KeyStore.loadOrGenerate(() => SecureAgentTransport.generateKeyPair());
     expect(kp1.ik.public_key).toBe(kp2.ik.public_key);
   });
 
   it('throws when decryption is attempted with the wrong password', () => {
-    const kp = HybridPQCTransport.generateKeyPair();
+    const kp = SecureAgentTransport.generateKeyPair();
     KeyStore.save(kp);
 
     process.env.STVOR_KEY_PASSWORD = 'wrong-password';

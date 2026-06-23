@@ -103,8 +103,12 @@ protects, what it does not protect, and the assumptions it makes.
 
 - **No `recordOutcome` integration.** `IReputationProvider.recordOutcome()` is defined on `MemoryReputationProvider` and `CompositeReputationProvider` but is not automatically called when a job is evaluated. Callers must invoke it manually or wire it through a lifecycle event hook.
 
-- **`ElizaJobStore` hydration is lazy.** Jobs persisted in ElizaOS memories are loaded on first `get()` or `listByAgent()` call. A process restart will temporarily show an empty store until hydration completes.
+- **`ElizaJobStore` hydration is lazy and best-effort.** Jobs are loaded on first `get()` or `listByAgent()` call. If the DB is unavailable at startup, `hydrated` is set to `true` and jobs will not be retried until the service instance is recreated. Hydration selects the latest persisted state for each job (by `updatedAt`), but requires that the ElizaOS DB adapter returns records in any stable order.
 
-- **Static `SecurityGuard` methods are deprecated.** `SecurityGuard.checkRateLimit()`, `.assertPayloadSafe()`, `.evaluatePolicy()`, and `.assertJobIdFormat()` use a module-level shared store. They remain for backward compatibility but share state across all agents in the same process. Use `AgentCommerceService.securityGuard` (per-runtime instance) instead.
+- **`ElizaJobStore` creates duplicate DB records.** `createMemory` is called on every `save()`, creating one record per state transition. Records accumulate over the job lifecycle. Hydration handles this correctly by selecting the highest `updatedAt` record. This is a known cost of the best-effort persistence model.
+
+- **Mutable job references.** `MemoryJobStore.get()` and `ElizaJobStore.get()` return the live object reference from the in-memory cache. The state machine mutates this reference directly — this is intentional and provides opportunistic double-spend protection in single-threaded Node.js/Bun: a concurrent `fundJob` call will see the updated state before it can proceed. Do not copy or cache the returned reference externally.
+
+- **Static `SecurityGuard` methods are deprecated.** `SecurityGuard.checkRateLimit()`, `.assertPayloadSafe()`, `.evaluatePolicy()`, and `.assertJobIdFormat()` use a module-level shared store. They remain for backward compatibility but share state across all agents in the same process. Use `AgentCommerceService.securityGuard` (per-runtime instance) instead. `CommerceTransportBridge` accepts an optional `SecurityGuard` instance for per-bridge isolation.
 
 - **`StubReputationGate` is for development only.** It is used in demo flows and unit tests. Do not use it in production — it does not enforce real reputation checks.

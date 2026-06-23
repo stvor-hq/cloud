@@ -41,6 +41,7 @@ export interface IStvorTransport {
   ): Promise<string>;
   receiveSecureMessage(timeoutMs?: number): Promise<IStvorMessage | null>;
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
+  offMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
   getSessionStatus(agentId: string): Promise<IStvorSession | null>;
   getStatus(): Promise<{
     connected: boolean;

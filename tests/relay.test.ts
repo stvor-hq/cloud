@@ -29,7 +29,7 @@ function validateRelayMessage(msg: RelayMessage): { valid: boolean; error?: stri
   }
   if (msg.type === 'message') {
     if (!msg.to) return { valid: false, error: 'Missing to field' };
-    if (!msg.payload && !msg.mlkemCt) {
+    if (!msg.payload) {
       return { valid: false, error: 'Missing payload' };
     }
   }
@@ -58,7 +58,7 @@ describe('Relay message validation', () => {
       type: 'message',
       to: 'bob',
       payload: 'encrypted-data',
-    } as RelayMessage & { mlkemCt?: string });
+    });
     expect(result.valid).toBe(true);
   });
 

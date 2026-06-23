@@ -19,7 +19,7 @@ export const securityEvaluator = {
     _state?: State,
   ): Promise<void> => {
     const logger = getPluginLogger(runtime);
-    const sender = String(message.entityId ?? runtime.agentId);
+    const sender = message.entityId ? String(message.entityId) : null;
 
     const service = runtime.getService<AgentCommerceService>(AGENT_COMMERCE_SERVICE_TYPE);
     const guard = service?.securityGuard;
@@ -29,12 +29,14 @@ export const securityEvaluator = {
       runtime.getSetting('STVOR_STRICT_MODE') === 'true';
 
     if (guard) {
-      try {
-        guard.checkRateLimit(sender);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        if (strictMode) throw new Error(`[SECURITY-GUARD] ${reason}`);
-        logger.warn(`Rate limit warning for ${sender}: ${reason}`);
+      if (sender !== null) {
+        try {
+          guard.checkRateLimit(sender);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          if (strictMode) throw new Error(`[SECURITY-GUARD] ${reason}`);
+          logger.warn(`Rate limit warning for ${sender}: ${reason}`);
+        }
       }
 
       try {
@@ -67,6 +69,8 @@ export const commerceEvaluator = {
     message: Memory,
     _state?: State,
   ): Promise<void> => {
+    if (!message.entityId) return;
+
     const text = message.content.text ?? '';
     const jobIds = text.match(/job-[\w-]+/gi);
     if (!jobIds || jobIds.length === 0) return;

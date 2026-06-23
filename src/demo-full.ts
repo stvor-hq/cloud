@@ -111,14 +111,10 @@ async function main(): Promise<void> {
   const gate = new MockPqcReputationGate();
   gate.setReputation(alice.id, 100);
   gate.setFundingLimit(alice.id, amount);
-  const commerce = new AgentCommercePlugin(
-    { agentId: 'demo-runtime' },
-    undefined,
-    {
-      jobStore: store,
-      reputationGate: gate,
-    },
-  );
+  const commerce = new AgentCommercePlugin(undefined, {
+    jobStore: store,
+    reputationGate: gate,
+  });
 
   const job = await commerce.createJob(
     alice.id,

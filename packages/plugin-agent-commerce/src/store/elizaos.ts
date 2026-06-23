@@ -27,7 +27,7 @@ function deserializeJob(raw: string): IErc8183Job {
  */
 export class ElizaJobStore implements IJobStore {
   private readonly cache = new Map<string, IErc8183Job>();
-  private hydrated = false;
+  private hydratePromise: Promise<void> | null = null;
 
   constructor(private readonly runtime: IAgentRuntime) {}
 
@@ -67,12 +67,17 @@ export class ElizaJobStore implements IJobStore {
 
   async clear(): Promise<void> {
     this.cache.clear();
-    this.hydrated = false;
+    this.hydratePromise = null;
   }
 
-  private async hydrate(): Promise<void> {
-    if (this.hydrated) return;
-    this.hydrated = true;
+  private hydrate(): Promise<void> {
+    if (!this.hydratePromise) {
+      this.hydratePromise = this._doHydrate();
+    }
+    return this.hydratePromise;
+  }
+
+  private async _doHydrate(): Promise<void> {
     try {
       const memories = await this.runtime.getMemories({
         agentId: this.runtime.agentId as UUID,
@@ -85,7 +90,8 @@ export class ElizaJobStore implements IJobStore {
         if (text.startsWith(JOB_MEMORY_PREFIX) && jobData) {
           try {
             const job = deserializeJob(jobData);
-            if (!this.cache.has(job.jobId)) {
+            const existing = this.cache.get(job.jobId);
+            if (!existing || job.updatedAt > existing.updatedAt) {
               this.cache.set(job.jobId, job);
             }
           } catch {

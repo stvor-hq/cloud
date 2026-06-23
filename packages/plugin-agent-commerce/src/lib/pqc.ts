@@ -42,6 +42,7 @@ export interface IStvorTransport {
   ): Promise<string>;
   receiveSecureMessage(timeoutMs?: number): Promise<IStvorMessage | null>;
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
+  offMessage(callback: (msg: IStvorMessage) => Promise<void>): void;
   getSessionStatus(agentId: string): Promise<IStvorSession | null>;
   getSession?(agentId: string): Record<string, boolean> | null;
   getStatus(): Promise<{
@@ -149,6 +150,11 @@ export class PolicyTransportManager implements IStvorTransport {
 
   onMessage(callback: (msg: IStvorMessage) => Promise<void>): void {
     this.messageHandlers.push(callback);
+  }
+
+  offMessage(callback: (msg: IStvorMessage) => Promise<void>): void {
+    const idx = this.messageHandlers.indexOf(callback);
+    if (idx !== -1) this.messageHandlers.splice(idx, 1);
   }
 
   async getSessionStatus(_agentId: string): Promise<IStvorSession | null> {
